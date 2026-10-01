@@ -47,7 +47,7 @@ pub struct CameraPanner2dPlugin;
 impl Plugin for CameraPanner2dPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(InputManagerPlugin::<CameraPanner2dAction>::default())
-            .add_systems(Update, handle_pan.in_set(PixelPerfectCameraControlsSet));
+            .add_systems(Update, handle_pan);
     }
 }
 

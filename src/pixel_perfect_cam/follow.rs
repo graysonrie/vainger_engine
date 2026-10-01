@@ -25,7 +25,7 @@ pub struct PixelPerfectCameraFollowPlugin;
 
 impl Plugin for PixelPerfectCameraFollowPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PostUpdate, handle_follow);
+        app.add_systems(PostUpdate, handle_follow.in_set(PixelPerfectCameraControlsSet::Follow));
     }
 }
 

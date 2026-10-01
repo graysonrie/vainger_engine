@@ -6,7 +6,10 @@ pub struct CameraBoundsPlugin;
 
 impl Plugin for CameraBoundsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PostUpdate, clamp_camera_bounds);
+        app.add_systems(
+            PostUpdate,
+            clamp_camera_bounds.in_set(PixelPerfectCameraControlsSet::Bounds),
+        );
     }
 }
 

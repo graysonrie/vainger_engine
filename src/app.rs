@@ -1,4 +1,5 @@
 use bevy::state::state::FreelyMutableState;
+use bevy_egui::EguiPlugin;
 
 use crate::{movement::MovementPlugin, prelude::*, ui::UiPlugin};
 
@@ -29,11 +30,12 @@ impl AppExt for App {
             .with_present_mode(bevy::window::PresentMode::Fifo)
             .with_focused(!cfg!(debug_assertions));
 
-        self.configure_sets(
-            Update,
-            PixelPerfectCameraControlsSet.run_if(in_game_condition),
-        )
-        .add_plugins(
+        // ! This is now handled by the pixel perfect cam itself
+        // self.configure_sets(
+        //     Update,
+        //     PixelPerfectCameraControlsSet.run_if(in_game_condition),
+        // )
+        self.add_plugins(
             DefaultPlugins
                 .set(window_plugin)
                 .set(ImagePlugin::default_nearest())
@@ -45,6 +47,7 @@ impl AppExt for App {
         .add_plugins(PrimitiveAssetsPlugin)
         .add_plugins(MovementPlugin)
         .add_plugins(UiPlugin)
+        .add_plugins(EguiPlugin::default())
         .add_plugins(AsepriteUltraPlugin);
 
         self

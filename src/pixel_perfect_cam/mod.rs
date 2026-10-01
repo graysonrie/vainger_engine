@@ -1,8 +1,8 @@
 pub mod bounds;
 mod config;
-pub mod pointer;
 pub mod follow;
 mod panner;
+pub mod pointer;
 
 use crate::pixel_perfect_cam::bounds::CameraBounds;
 use crate::prelude::*;
@@ -15,7 +15,10 @@ pub use panner::CameraPanner2dBundle;
 
 /// These systems run in the Update event
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct PixelPerfectCameraControlsSet;
+pub enum PixelPerfectCameraControlsSet {
+    Follow,
+    Bounds,
+}
 
 use bevy::camera::RenderTarget;
 use bevy::camera::visibility::RenderLayers;
@@ -101,6 +104,11 @@ impl Plugin for PixelPerfectCameraPlugin {
         app.add_plugins(panner::CameraPanner2dPlugin);
         app.add_plugins(bounds::CameraBoundsPlugin);
         app.add_plugins(follow::PixelPerfectCameraFollowPlugin);
+
+        app.configure_sets(PostUpdate, {
+            use PixelPerfectCameraControlsSet::*;
+            ( Follow, Bounds).chain()
+        });
         app.add_systems(Startup, (setup, configure_window_constraints));
         app.add_systems(PreUpdate, reset_game_view_slot);
         app.add_systems(
