@@ -12,3 +12,4 @@ mod resources;
 pub mod ui;
 mod util;
 pub mod colors;
+pub mod mesh;

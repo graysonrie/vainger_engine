@@ -6321,9 +6321,12 @@ dependencies = [
  "bevy_asset_loader",
  "bevy_egui",
  "bevy_kira_audio",
+ "js-sys",
  "leafwing-input-manager",
  "noise",
  "regex",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

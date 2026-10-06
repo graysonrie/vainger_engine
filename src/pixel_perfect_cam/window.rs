@@ -8,6 +8,9 @@ use bevy::{
 // Common integer game resolutions for pixel-perfect window setup:
 
 #[allow(dead_code)]
+pub const ANTONBLAST: UVec2 = UVec2::new(384, 216);
+
+#[allow(dead_code)]
 pub const UFO_50: UVec2 = UVec2::new(384, 216);
 
 #[allow(dead_code)]

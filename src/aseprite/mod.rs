@@ -77,4 +77,11 @@ impl AseInfo<'_> {
             ),
         })
     }
+
+    pub fn animation_from_tag(&self, handle: &Handle<Aseprite>, tag_name: &str) -> AseAnimation {
+        AseAnimation {
+            aseprite: handle.clone(),
+            animation: Animation::tag(tag_name),
+        }
+    }
 }

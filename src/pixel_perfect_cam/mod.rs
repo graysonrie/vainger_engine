@@ -3,6 +3,8 @@ mod config;
 pub mod follow;
 mod panner;
 pub mod pointer;
+#[cfg(target_arch = "wasm32")]
+mod web_color;
 
 use crate::pixel_perfect_cam::bounds::CameraBounds;
 use crate::prelude::*;
@@ -107,9 +109,11 @@ impl Plugin for PixelPerfectCameraPlugin {
 
         app.configure_sets(PostUpdate, {
             use PixelPerfectCameraControlsSet::*;
-            ( Follow, Bounds).chain()
+            (Follow, Bounds).chain()
         });
         app.add_systems(Startup, (setup, configure_window_constraints));
+        #[cfg(target_arch = "wasm32")]
+        app.add_systems(Update, web_color::tag_canvas_color_space);
         app.add_systems(PreUpdate, reset_game_view_slot);
         app.add_systems(
             PostUpdate,
@@ -143,7 +147,9 @@ fn setup(
             label: Some("game_canvas"),
             size: canvas_size,
             dimension: TextureDimension::D2,
-            format: TextureFormat::Bgra8UnormSrgb,
+            // RGBA sRGB, not BGRA. WebGL has no BGRA sRGB format, so a BGRA target
+            // takes a different gamma path in the browser than on desktop.
+            format: TextureFormat::Rgba8UnormSrgb,
             mip_level_count: 1,
             sample_count: 1,
             usage: TextureUsages::TEXTURE_BINDING
