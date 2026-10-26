@@ -30,16 +30,35 @@ impl TransformExt for GlobalTransform {
     }
 }
 
+pub trait Vec3Ext {
+    /// Adds the 2D position to this, preserving the z value
+    fn add_2d_pos(&mut self, pos: &Vec2);
+}
+impl Vec3Ext for Vec3 {
+    fn add_2d_pos(&mut self, pos: &Vec2) {
+        self.x += pos.x;
+        self.y += pos.y;
+    }
+}
+
 pub trait Vec2Ext {
     /// Computes the vector from start to target, then clamp that vector to your maximum radius.
     ///
     /// Ex: How the player cursor works in Terraria
     fn clamp_towards(&self, target: Vec2, radius: f32) -> Vec2;
+    fn add_to_x(&self, val: f32) -> Vec2;
+    fn neg_and_pos(val: f32) -> Vec2;
 }
 impl Vec2Ext for Vec2 {
     fn clamp_towards(&self, target: Vec2, radius: f32) -> Vec2 {
         let start = self;
         start + (target - start).clamp_length_max(radius)
+    }
+    fn add_to_x(&self, val: f32) -> Vec2 {
+        vec2(self.x + val, self.y)
+    }
+    fn neg_and_pos(val: f32) -> Vec2 {
+        vec2(-val, val)
     }
 }
 

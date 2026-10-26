@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 pub mod fonts;
 
-pub use fonts::{BitmapText, BitmapTextPlugin, EngineFonts};
+pub use fonts::{BitmapText, BitmapTextPlugin};
 
 pub struct UiPlugin;
 

@@ -1,10 +1,24 @@
 use crate::prelude::*;
 
 /// Represents a theoretical hitbox
-#[derive(Clone, Debug, Component)]
+#[derive(Clone, Debug, Component, Default)]
 pub struct Hitbox {
     size: UVec2,
     anchor: Anchor,
+}
+
+#[derive(Clone, Debug, Copy)]
+pub struct MinMax {
+    pub min: Vec2,
+    pub max: Vec2,
+}
+impl MinMax {
+    pub fn shrink_by_val(&self, val: Vec2) -> Self {
+        MinMax {
+            min: self.min + val,
+            max: self.max + val,
+        }
+    }
 }
 
 impl Hitbox {
@@ -22,6 +36,17 @@ impl Hitbox {
     /// Returns the pixel positions that represent the four corners of this bounding box
     /// within the world. `world_pos` is the pixel position that the sprite's `anchor` is
     /// currently at
+    ///
+    /// The ordering is: BL, BR, TR, TL
+    ///
+    /// Visually, this looks like:
+    /// ```ignore
+    /// 4-----------3
+    /// |           |
+    /// |           |
+    /// |           |
+    /// 1-----------2
+    /// ```
     pub fn four_corners_in_world(&self, world_pos: Vec2) -> [Vec2; 4] {
         let size = self.size_vec2();
         let anchor = self.anchor.as_vec();
@@ -40,6 +65,16 @@ impl Hitbox {
             let delta = (corner - anchor) * size;
             world_pos + delta
         })
+    }
+
+    /// Nearly same functionality as `four_corners_in_world`
+    ///
+    // TODO: see if this can be made any more efficient
+    pub fn min_max_positions_in_world(&self, world_pos: Vec2) -> MinMax {
+        let corners = self.four_corners_in_world(world_pos);
+        let min = corners.into_iter().reduce(Vec2::min).unwrap();
+        let max = corners.into_iter().reduce(Vec2::max).unwrap();
+        MinMax { min, max }
     }
 
     #[inline]

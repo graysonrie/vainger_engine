@@ -1,44 +1,8 @@
 use crate::prelude::*;
-mod ufo_fonts;
+pub mod asset;
+use asset::*;
 
-/// Resolved default bitmap font, built after [`EngineArtHandles`] finishes loading.
-#[derive(Resource, Clone)]
-pub struct EngineFonts {
-    pub default: BitmapFont,
-}
-
-/// An 8×8 atlas font. Glyph index `n` is codepoint `32 + n`.
-#[derive(Clone)]
-pub struct BitmapFont {
-    pub image: Handle<Image>,
-    pub layout: Handle<TextureAtlasLayout>,
-    pub glyph_size: UVec2,
-    first_code: u32,
-    last_code: u32,
-}
-
-impl BitmapFont {
-    pub fn glyph_index(&self, c: char) -> Option<usize> {
-        let code = c as u32;
-        if (self.first_code..=self.last_code).contains(&code) {
-            Some((code - self.first_code) as usize)
-        } else {
-            None
-        }
-    }
-}
-
-/// This impl is required so that `bevy_asset_loader` can init the EngineFonts
-/// resource after the handles get loaded  
-impl FromWorld for EngineFonts {
-    fn from_world(world: &mut World) -> Self {
-        let default = ufo_fonts::default_font(world);
-
-        Self { default }
-    }
-}
-
-/// Pixel-perfect UI text using the engine bitmap font.
+/// Pixel-perfect UI text using the a bitmap font.
 ///
 /// Spawn on the default UI camera (the low-res game canvas). Mutate `text`,
 /// `color`, `scale`, or `max_width` and the glyph children are rebuilt
@@ -70,24 +34,17 @@ pub struct BitmapText {
     /// Optional wrap width in canvas pixels. `None` wraps only on `\n`.
     /// Floored to a whole number of glyphs; values narrower than one glyph are ignored.
     pub max_width: Option<u32>,
-}
-
-impl Default for BitmapText {
-    fn default() -> Self {
-        Self {
-            text: String::new(),
-            color: Color::WHITE,
-            scale: 1,
-            max_width: None,
-        }
-    }
+    pub font: Handle<BitmapFont>,
 }
 
 impl BitmapText {
-    pub fn new(text: impl Into<String>) -> Self {
+    pub fn new(text: impl Into<String>, font: Handle<BitmapFont>) -> Self {
         Self {
             text: text.into(),
-            ..default()
+            color: Color::WHITE,
+            scale: 1,
+            max_width: None,
+            font,
         }
     }
 
@@ -121,26 +78,25 @@ pub struct BitmapTextPlugin;
 
 impl Plugin for BitmapTextPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            rebuild_bitmap_text.run_if(resource_exists::<EngineFonts>),
-        );
+        app.init_asset::<BitmapFont>()
+            .register_asset_loader(BitmapFontLoader)
+            .add_systems(Update, rebuild_bitmap_text);
     }
 }
 
 /// The way it works is:
-/// Whenever `BitmapText` is inserted into an entity, an EngineFont is changed, or a 
+/// Whenever `BitmapText` is inserted into an entity, an EngineFont is changed, or a
 /// `BitmapText` is edited, then the glyphs are rebuilt
 fn rebuild_bitmap_text(
     mut commands: Commands,
-    fonts: Res<EngineFonts>,
     texts: Query<(Entity, Ref<BitmapText>, Option<&Children>)>,
     glyph_roots: Query<(), With<BitmapTextGlyphs>>,
+    fonts: Res<Assets<BitmapFont>>,
 ) {
-    let font_added = fonts.is_added();
+    // let font_added = fonts.is_added();
     for (entity, text, children) in &texts {
-        if font_added || text.is_changed() {
-            rebuild_glyphs(&mut commands, entity, &text, children, &fonts, &glyph_roots);
+        if text.is_changed() {
+            rebuild_glyphs(&mut commands, entity, &text, children, &glyph_roots, &fonts);
         }
     }
 }
@@ -150,8 +106,8 @@ fn rebuild_glyphs(
     entity: Entity,
     text: &BitmapText,
     children: Option<&Children>,
-    fonts: &EngineFonts,
     glyph_roots: &Query<(), With<BitmapTextGlyphs>>,
+    fonts: &Assets<BitmapFont>,
 ) {
     if let Some(children) = children {
         for &child in children {
@@ -161,7 +117,10 @@ fn rebuild_glyphs(
         }
     }
 
-    let font = &fonts.default;
+    let Some(font) = fonts.get(&text.font) else {
+        warn!("No font found!");
+        return;
+    };
     let scale = text.scale.max(1);
     let glyph_px = font.glyph_size.x * scale;
     let glyph_px_f = glyph_px as f32;

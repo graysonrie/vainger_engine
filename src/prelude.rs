@@ -6,7 +6,7 @@ pub use super::parallax_bg::{
 };
 pub use super::pixel_perfect_cam::*;
 pub use super::resources::*;
-pub use super::ui::{BitmapText, EngineFonts};
+pub use super::ui::{BitmapText};
 
 pub use bevy::prelude::*;
 pub use bevy::sprite::Anchor;
