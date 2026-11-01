@@ -8,9 +8,10 @@ pub struct PixelPerfectCameraFollow {
 }
 #[allow(unused)]
 impl PixelPerfectCameraFollow {
-    /// The `decay_rate` should be between 0-1.
     /// The larger the decay rate, the faster the camera will
-    /// track the target
+    /// track the target.
+    ///
+    /// Default is 4.0
     pub fn new(decay_rate: f32) -> Self {
         Self { decay_rate }
     }

@@ -55,7 +55,6 @@ fn start_crossfade(
         return;
     }
 
-
     if request.duration <= 0.0 {
         despawn_active(spawner, active);
         active.current = spawner.spawn(request.to, 1.0);

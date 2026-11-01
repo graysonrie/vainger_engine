@@ -38,6 +38,11 @@ aseprite-loader = "0.4.2"
 ron = "0.12"
 serde = "1.0.229"
 thiserror = "2.0.21"
+strum = "0.28.0"
+strum_macros = "0.28.0"
+bevy_framepace = "0.22.0"
+anyhow = "1.0.104"
+array2d = "0.3.2"
 
 # Used only to retag the WebGL canvas after wgpu has created it.
 [target.'cfg(target_arch = "wasm32")'.dependencies]

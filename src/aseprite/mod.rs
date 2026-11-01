@@ -1,5 +1,20 @@
+use std::time::Duration;
+
 use crate::{aseprite::types::TileSprite, prelude::*};
+pub mod hitbox;
 pub mod types;
+pub mod util;
+
+/// Hitbox taken from the opaque pixels of one Aseprite frame.
+///
+/// [`Hitbox`]'s anchor is [`Anchor::CENTER`]: the origin is the center of that
+/// rectangle, not the center of the canvas. [`Self::sprite_anchor`] is the
+/// full-canvas sprite anchor that puts this same point on the entity transform.
+#[derive(Clone, Debug)]
+pub struct FrameHitbox {
+    pub hitbox: Hitbox,
+    pub sprite_anchor: Anchor,
+}
 
 /// Provides useful info about Aseprite assets. Does not mutate anything.
 #[derive(SystemParam)]
@@ -78,10 +93,185 @@ impl AseInfo<'_> {
         })
     }
 
-    pub fn animation_from_tag(&self, handle: &Handle<Aseprite>, tag_name: &str) -> AseAnimation {
-        AseAnimation {
-            aseprite: handle.clone(),
-            animation: Animation::tag(tag_name),
+    /// Builds a [`FrameHitbox`] from the opaque pixels of the first frame of `tag_name`.
+    ///
+    /// The loader flattens every layer into the frame, so pixels from other
+    /// layers on that frame are included. Returns `None` when the tag, atlas, or
+    /// opaque pixels are missing.
+    pub fn hitbox_from_tag(
+        &self,
+        handle: &Handle<Aseprite>,
+        tag_name: &str,
+    ) -> Option<FrameHitbox> {
+        let ase = self.get(handle)?;
+        let tag = ase.tags.get(tag_name)?;
+        let layout = self.layouts.get(&ase.atlas_layout)?;
+        let image = self.images.get(&ase.atlas_image)?;
+        let frame = usize::from(*tag.range.start());
+        let atlas_rect = layout.textures.get(ase.get_atlas_index(frame))?;
+        let opaque = opaque_bounds(image, *atlas_rect)?;
+        let frame_bounds = URect {
+            min: opaque.min.saturating_sub(atlas_rect.min),
+            max: opaque.max.saturating_sub(atlas_rect.min),
+        };
+        frame_hitbox(atlas_rect.size(), frame_bounds)
+    }
+
+    /// Forces the animation playhead back to the start and renders the frame
+    pub fn reset_anim(
+        &self,
+        ase: &mut AseAnimation,
+        tag: &str,
+        state: &mut AnimationState,
+    ) -> anyhow::Result<()> {
+        let Some(sprite) = self.aseprites.get(&ase.aseprite) else {
+            return Err(anyhow!("Aseprite has no sprite"));
+        };
+
+        let Some(meta) = sprite.tags.get(tag) else {
+            return Err(anyhow!("Not a valid tag: {tag}"));
+        };
+
+        state.current_frame = *meta.range.start();
+        state.relative_frame = 0;
+        state.elapsed = Duration::ZERO;
+
+        Ok(())
+    }
+}
+
+/// `bounds` is in canvas pixels, origin at the top left, `max` exclusive.
+fn frame_hitbox(canvas: UVec2, bounds: URect) -> Option<FrameHitbox> {
+    let size = bounds.max.saturating_sub(bounds.min);
+    if size.x == 0 || size.y == 0 || canvas.x == 0 || canvas.y == 0 {
+        return None;
+    }
+
+    // Aseprite y grows down. Sprite space y grows up, with the origin at the canvas center.
+    let center_x = (bounds.min.x + bounds.max.x) as f32 / 2.0 - canvas.x as f32 / 2.0;
+    let center_y = canvas.y as f32 / 2.0 - (bounds.min.y + bounds.max.y) as f32 / 2.0;
+
+    Some(FrameHitbox {
+        hitbox: Hitbox::new(size.x, size.y, Anchor::CENTER),
+        sprite_anchor: Anchor(Vec2::new(
+            center_x / canvas.x as f32,
+            center_y / canvas.y as f32,
+        )),
+    })
+}
+
+/// Inclusive-min, exclusive-max bounds of pixels with any alpha, in image space.
+fn opaque_bounds(image: &Image, region: URect) -> Option<URect> {
+    let mut min = UVec2::MAX;
+    let mut max = UVec2::MIN;
+    let mut found = false;
+
+    for y in region.min.y..region.max.y {
+        for x in region.min.x..region.max.x {
+            let alpha = image.get_color_at(x, y).ok()?.alpha();
+            if alpha <= 0.0 {
+                continue;
+            }
+            found = true;
+            min = min.min(uvec2(x, y));
+            max = max.max(uvec2(x + 1, y + 1));
         }
+    }
+
+    if !found {
+        return None;
+    }
+    Some(URect { min, max })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::asset::RenderAssetUsages;
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+
+    #[test]
+    fn offset_rectangle_origin_is_its_center() {
+        let canvas = uvec2(64, 64);
+        // Pixels x=10..30, y=20..50 in top-left space. Center is left and below the canvas center.
+        let frame = frame_hitbox(
+            canvas,
+            URect {
+                min: uvec2(10, 20),
+                max: uvec2(30, 50),
+            },
+        )
+        .expect("bounds");
+
+        assert_eq!(frame.hitbox.size(), uvec2(20, 30));
+        let anchor = frame.sprite_anchor.as_vec();
+        assert!((anchor.x - (-12.0 / 64.0)).abs() < 1e-5);
+        assert!((anchor.y - (-3.0 / 64.0)).abs() < 1e-5);
+
+        // Entity transform is the rectangle center, so the box extends half its size each way.
+        // Those edges are the painted pixels: x=10..30, y=20..50 on the 64² canvas.
+        let corners = frame.hitbox.four_corners_in_world(Vec2::ZERO);
+        assert!((corners[0] - Vec2::new(-10.0, -15.0)).length() < 1e-4);
+        assert!((corners[2] - Vec2::new(10.0, 15.0)).length() < 1e-4);
+    }
+
+    #[test]
+    fn opaque_bounds_ignore_transparent_pixels() {
+        let width = 8;
+        let height = 8;
+        let mut data = vec![0u8; (width * height * 4) as usize];
+        for y in 1..3 {
+            for x in 2..5 {
+                let index = ((y * width + x) * 4) as usize;
+                data[index + 3] = 255;
+            }
+        }
+        let image = Image::new(
+            Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            data,
+            TextureFormat::Rgba8UnormSrgb,
+            RenderAssetUsages::default(),
+        );
+        let bounds = opaque_bounds(
+            &image,
+            URect {
+                min: UVec2::ZERO,
+                max: uvec2(width, height),
+            },
+        )
+        .expect("opaque pixels");
+        let frame = frame_hitbox(uvec2(width, height), bounds).expect("hitbox");
+
+        assert_eq!(bounds.min, uvec2(2, 1));
+        assert_eq!(bounds.max, uvec2(5, 3));
+        assert_eq!(frame.hitbox.size(), uvec2(3, 2));
+        let anchor = frame.sprite_anchor.as_vec();
+        assert!((anchor.x - (-0.5 / 8.0)).abs() < 1e-5);
+        assert!((anchor.y - (2.0 / 8.0)).abs() < 1e-5);
+    }
+}
+
+pub struct AsepriteExtPlugin;
+
+impl Plugin for AsepriteExtPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, watch_for_anim_complete);
+    }
+}
+
+#[derive(EntityEvent)]
+pub struct AnimationComplete(Entity);
+
+fn watch_for_anim_complete(mut events: MessageReader<AnimationEvents>, mut commands: Commands) {
+    for event in events.read() {
+        let AnimationEvents::Finished(e) = event else {
+            continue;
+        };
+        commands.entity(*e).trigger(AnimationComplete);
     }
 }

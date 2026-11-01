@@ -1,5 +1,3 @@
-use bevy::ecs::system::{ReadOnlySystemParam, SystemState};
-
 use crate::prelude::*;
 
 pub trait TransformExt {
@@ -46,7 +44,8 @@ pub trait Vec2Ext {
     ///
     /// Ex: How the player cursor works in Terraria
     fn clamp_towards(&self, target: Vec2, radius: f32) -> Vec2;
-    fn add_to_x(&self, val: f32) -> Vec2;
+    fn add_to_x(self, val: f32) -> Vec2;
+    fn add_to_y(self, val: f32) -> Vec2;
     fn neg_and_pos(val: f32) -> Vec2;
 }
 impl Vec2Ext for Vec2 {
@@ -54,8 +53,13 @@ impl Vec2Ext for Vec2 {
         let start = self;
         start + (target - start).clamp_length_max(radius)
     }
-    fn add_to_x(&self, val: f32) -> Vec2 {
-        vec2(self.x + val, self.y)
+    fn add_to_x(mut self, val: f32) -> Vec2 {
+        self.x += val;
+        self
+    }
+    fn add_to_y(mut self, val: f32) -> Vec2 {
+        self.y += val;
+        self
     }
     fn neg_and_pos(val: f32) -> Vec2 {
         vec2(-val, val)
@@ -80,5 +84,27 @@ pub trait I32Ext {
 impl I32Ext for i32 {
     fn as_ivec2_y(&self) -> IVec2 {
         ivec2(0, *self)
+    }
+}
+
+pub trait SpriteExt {
+    fn flip_x_val(&self) -> f32;
+}
+impl SpriteExt for Sprite {
+    fn flip_x_val(&self) -> f32 {
+        if self.flip_x { -1. } else { 1. }
+    }
+}
+
+pub trait ResultExt {
+    /// Will print a tracing warning to the console if an error occurred
+    fn warn_if_err(&self);
+}
+
+impl<T> ResultExt for anyhow::Result<T> {
+    fn warn_if_err(&self) {
+        if let Err(e) = self {
+            warn!("{e}")
+        }
     }
 }
