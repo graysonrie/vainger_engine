@@ -3,7 +3,7 @@
 //! [`crate::app::AppExt::setup_for_default_2d_pixel_game`] installs the system
 //! that fills [`IntGridCells`] when a level spawns.
 
-use crate::{components::Velocity2D, prelude::*};
+use crate::prelude::*;
 
 pub(crate) struct IntGridCellsPlugin;
 
@@ -217,8 +217,6 @@ impl IntGridCells {
             layer_name: collision_layer_name,
         })
     }
-
-
 }
 
 /// Copies the spawned level's Collision IntGrid onto the drive world's [`IntGridCells`].
@@ -248,4 +246,3 @@ fn populate_int_grid_cells(
         }
     }
 }
-
