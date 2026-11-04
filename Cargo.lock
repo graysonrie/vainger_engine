@@ -5920,7 +5920,6 @@ dependencies = [
  "js-sys",
  "leafwing-input-manager",
  "noise",
- "regex",
  "ron",
  "serde",
  "strum 0.28.0",

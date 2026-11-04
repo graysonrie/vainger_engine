@@ -47,6 +47,7 @@ pub trait Vec2Ext {
     fn add_to_x(self, val: f32) -> Vec2;
     fn add_to_y(self, val: f32) -> Vec2;
     fn neg_and_pos(val: f32) -> Vec2;
+    fn zero(&mut self) -> Self;
 }
 impl Vec2Ext for Vec2 {
     fn clamp_towards(&self, target: Vec2, radius: f32) -> Vec2 {
@@ -63,6 +64,11 @@ impl Vec2Ext for Vec2 {
     }
     fn neg_and_pos(val: f32) -> Vec2 {
         vec2(-val, val)
+    }
+    fn zero(&mut self) -> Self {
+        self.x = 0.;
+        self.y = 0.;
+        *self
     }
 }
 

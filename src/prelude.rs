@@ -35,3 +35,4 @@ pub use bevy_ecs_ldtk::{
 };
 
 pub use crate::aseprite::util::*;
+pub use thiserror;

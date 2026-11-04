@@ -2,8 +2,7 @@ use bevy_egui::EguiPlugin;
 use bevy_framepace::Limiter;
 
 use crate::{
-    aseprite::hitbox::AsepriteHitboxPlugin, ldtk::int_grid_cells::IntGridCellsPlugin,
-    movement::MovementPlugin, prelude::*, ui::UiPlugin,
+    aseprite::{animation::AsepriteAnimationPlugin, hitbox::AsepriteHitboxPlugin}, ldtk::int_grid_cells::IntGridCellsPlugin, movement::MovementPlugin, prelude::*, ui::UiPlugin,
 };
 
 pub trait AppExt {
@@ -31,6 +30,7 @@ impl AppExt for App {
                 .disable::<GilrsPlugin>(),
         )
         .add_plugins(LdtkPlugin)
+        .add_plugins(AsepriteAnimationPlugin)
         .add_plugins(PixelPerfectCameraPlugin::of_size(game_res))
         .add_plugins(PrimitiveAssetsPlugin)
         .add_plugins(AsepriteHitboxPlugin)
