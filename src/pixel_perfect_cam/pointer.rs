@@ -33,7 +33,16 @@ impl GamePointer<'_, '_> {
         self.touches.first_pressed_position()
     }
 
-    /// Gets the position of the finger or mouse cursor in the world
+    /// Cursor or finger position in game-pixel world space (the inner camera, Y-up).
+    ///
+    /// [`None`] when the pointer is outside the OS window. On Windows, dragging
+    /// with the left button held captures the mouse; once the cursor leaves the
+    /// client area this returns [`None`] even though the button is still down.
+    ///
+    /// ### NOTE:
+    /// Letterbox bars are still inside the window, so a cursor there returns a
+    /// world position that can fall outside the canvas. [`Self::is_inside_window`]
+    /// does not mean "inside the game view".
     pub fn position(&self) -> Option<Vec2> {
         let cursor = self.screen_position()?;
         let (cam, transform) = *self.outer;
@@ -49,10 +58,18 @@ impl GamePointer<'_, '_> {
         self.screen_position().is_some()
     }
 
+    /// Left mouse button or a touch went down this frame.
+    ///
+    /// Right and middle buttons are ignored. A touch counts on any finger.
     pub fn just_pressed(&self) -> bool {
         self.mouse.just_pressed(MouseButton::Left) || self.touches.any_just_pressed()
     }
 
+    /// Left mouse button is held, or at least one finger is on the screen.
+    ///
+    /// This is not the same as "the pointer is over the game canvas". A held
+    /// button still reports pressed after the cursor has left the window.
+    /// Use [`Self::is_inside_window`] for that.
     pub fn pressed(&self) -> bool {
         self.mouse.pressed(MouseButton::Left)
             || self.touches.any_just_pressed()

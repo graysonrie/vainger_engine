@@ -1,3 +1,10 @@
+//! Usual imports for a game built on this crate: engine types, Bevy, leafwing
+//! input, `bevy_asset_loader`, and `bevy_aseprite_ultra`.
+//!
+//! Collision ([`crate::collision`]), movement ([`crate::movement`]), meshes
+//! ([`crate::mesh`]), the UFO palette ([`crate::colors`]), and LDtk grid data
+//! ([`crate::ldtk`]) are not all re-exported here.
+
 pub use super::app::*;
 pub use super::debug_draw::*;
 pub use super::hitbox::*;

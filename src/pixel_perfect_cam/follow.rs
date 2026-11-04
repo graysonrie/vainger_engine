@@ -1,6 +1,19 @@
+//! Smooth follow for [`PixelPerfectCamera`].
+
 use crate::prelude::*;
 
-/// Marker component that tells the pixel perfect camera to follow this entity
+/// Makes [`PixelPerfectCamera`] chase this entity's `x` and `y`.
+///
+/// The camera keeps its own Z. Put this on a gameplay entity, not on the camera.
+/// A component on the camera itself is ignored by the follow query.
+///
+/// ### NOTE:
+/// The follow system uses a single-entity query. Zero followers, or more than
+/// one, and the system errors and does not move the camera. The plugin is
+/// always installed by [`PixelPerfectCameraPlugin`], so the error is logged
+/// every frame until exactly one entity has this component.
+/// [`CameraPanner2dBundle`] includes one. Do not spawn a second follower
+/// alongside the panner.
 #[derive(Component)]
 pub struct PixelPerfectCameraFollow {
     /// A value like `4.` is a good amount
@@ -22,6 +35,9 @@ impl Default for PixelPerfectCameraFollow {
     }
 }
 
+/// Runs the follow system in [`PixelPerfectCameraControlsSet::Follow`].
+///
+/// Added by [`PixelPerfectCameraPlugin`]. Adding it again registers the system twice.
 pub struct PixelPerfectCameraFollowPlugin;
 
 impl Plugin for PixelPerfectCameraFollowPlugin {

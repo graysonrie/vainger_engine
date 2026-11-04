@@ -1,8 +1,14 @@
+//! LDtk project queries. IntGrid collision data lives in [`int_grid_cells`].
+
 use crate::prelude::*;
 use bevy_ecs_ldtk::{ldtk::Level, prelude::*};
 pub mod int_grid_cells;
 
-/// Provides convenience methods around common LDtk operations
+/// Read-only access to loaded [`LdtkProject`] assets.
+///
+/// Use it as a system parameter. It does not spawn levels or wait for loads;
+/// [`Self::first_level`] returns [`None`] and logs a warning when the project
+/// is not loaded yet.
 #[derive(SystemParam)]
 pub struct LdtkInfo<'w> {
     projects: Res<'w, Assets<LdtkProject>>,

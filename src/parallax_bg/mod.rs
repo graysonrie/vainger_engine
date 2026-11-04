@@ -19,23 +19,44 @@ use crate::prelude::*;
 
 pub use fade::CrossfadeBackground;
 
-/// Where a layer's pixels come from inside the aseprite file.
+/// Where a layer's pixels come from inside the Aseprite file.
+///
+/// Document layers are flattened by the loader, so a Photoshop-style layer is
+/// not a source. Use a tag or a slice. See the module docs.
 #[derive(Clone, Copy, Debug)]
 pub enum LayerSource {
+    /// Animated full-canvas frames under this tag name.
+    ///
+    /// The tile size is the size of the first frame of the tag, which is the
+    /// canvas size. A missing tag is skipped and a warning is logged.
     Tag(&'static str),
+    /// Named rectangle on the sheet.
+    ///
+    /// The tile size is the slice rect. A missing slice is skipped and a
+    /// warning is logged.
     Slice(&'static str),
 }
 
 /// One repeating parallax layer inside a [`BackgroundDef`].
 #[derive(Clone, Copy, Debug)]
 pub struct ParallaxLayer {
+    /// Tag or slice that supplies the tile.
     pub source: LayerSource,
+    /// Draw order. Higher values are in front. The default from [`Self::tag`]
+    /// and [`Self::slice`] is `-10`, behind sprites left at `z = 0`.
+    ///
+    /// ### NOTE:
+    /// A layer at `z >= 0` draws on top of world sprites that are still at the origin.
     pub z: f32,
+    /// How much of the camera movement this layer copies. See [`Self::scroll`].
     pub scroll: Vec2,
+    /// Extra motion in pixels per second, wrapped with the tile. See [`Self::auto_scroll`].
     pub auto_scroll: Vec2,
 }
 
 impl ParallaxLayer {
+    /// Layer painted from the tag `name`. Z is `-10`, and both scroll factors are zero
+    /// (the layer sticks to the camera).
     pub fn tag(name: &'static str) -> Self {
         Self {
             source: LayerSource::Tag(name),
@@ -45,6 +66,7 @@ impl ParallaxLayer {
         }
     }
 
+    /// Layer painted from the slice `name`. Same defaults as [`Self::tag`].
     pub fn slice(name: &'static str) -> Self {
         Self {
             source: LayerSource::Slice(name),
@@ -54,27 +76,32 @@ impl ParallaxLayer {
         }
     }
 
+    /// Set the draw-order Z. Higher is closer to the camera.
     pub fn z(mut self, z: f32) -> Self {
         self.z = z;
         self
     }
 
-    /// `self.z(-12.)`
+    /// `z = -12`. Further back than the default `-10`.
     pub fn z_far(self) -> Self {
         self.z(-12.)
     }
 
-    /// `self.z(-8.)`
+    /// `z = -8`. In front of the default `-10`, still behind sprites at `z = 0`.
     pub fn z_mid(self) -> Self {
         self.z(-8.)
     }
 
-    /// `self.z(-6.)`
+    /// `z = -6`. The closest of the three presets, still behind sprites at `z = 0`.
     pub fn z_near(self) -> Self {
         self.z(-6.)
     }
 
-    /// Camera-relative scroll factor. `0` locks to the camera, `1` locks to the world.
+    /// Camera-relative scroll factor. `0` locks the layer to the camera, `1` locks it to the world.
+    ///
+    /// Values between 0 and 1 trail behind the camera (a distant mountain).
+    /// Values outside that range move faster than the camera, or in the
+    /// opposite direction when negative. `x` and `y` are independent.
     pub fn scroll(mut self, x: f32, y: f32) -> Self {
         self.scroll = Vec2::new(x, y);
         self
@@ -90,7 +117,13 @@ impl ParallaxLayer {
 /// A named stack of parallax layers that can be shown or crossfaded.
 #[derive(Clone, Debug)]
 pub struct BackgroundDef {
+    /// Name used by [`ParallaxBackgroundPlugin::with_initial`] and [`CrossfadeBackground::to`].
+    ///
+    /// Compared as a string. Two defs with the same id: the later one replaces
+    /// the earlier one in the catalog.
     pub id: &'static str,
+    /// Back-to-front is up to [`ParallaxLayer::z`], not the order in this list.
+    /// The list order is only the order they are spawned.
     pub layers: Vec<ParallaxLayer>,
 }
 
@@ -103,15 +136,20 @@ impl BackgroundDef {
         }
     }
 
+    /// Append one layer. Call this once per tag or slice in the stack.
     pub fn layer(mut self, layer: ParallaxLayer) -> Self {
         self.layers.push(layer);
         self
     }
 }
 
-/// Loaded aseprite sheet used by every parallax stack.
+/// Loaded Aseprite sheet used by every parallax stack.
+///
+/// Present only after the loading state from [`ParallaxBackgroundPlugin::new`]
+/// has finished loading the collection. Systems that run earlier will not see it.
 #[derive(Resource, Clone)]
 pub struct ParallaxAseprite {
+    /// The sheet at the path passed to [`ParallaxBackgroundPlugin::new`].
     pub handle: Handle<Aseprite>,
 }
 
@@ -218,6 +256,16 @@ pub struct ParallaxBackgroundPlugin<S: FreelyMutableState> {
 }
 
 impl<S: FreelyMutableState> ParallaxBackgroundPlugin<S> {
+    /// Load `aseprite_path` during `load_state`, then spawn from `defs`.
+    ///
+    /// `load_state` must already have a [`LoadingState`] registered. This
+    /// method only adds a collection to it. `aseprite_path` is an asset path,
+    /// for example `"art/backgrounds/bgs.aseprite"`, and it has to be `'static`.
+    ///
+    /// ### NOTE:
+    /// No background is spawned until that load finishes and [`ParallaxAseprite`]
+    /// exists. If `defs` is empty, a warning is logged and nothing is spawned.
+    /// The first def is the one that appears, unless [`Self::with_initial`] says otherwise.
     pub fn new(
         load_state: S,
         aseprite_path: &'static str,
@@ -231,6 +279,11 @@ impl<S: FreelyMutableState> ParallaxBackgroundPlugin<S> {
         }
     }
 
+    /// Which [`BackgroundDef::id`] to spawn once the sheet has loaded.
+    ///
+    /// ### NOTE:
+    /// An id that is not in `defs` does not fail up front. The spawn warns
+    /// `unknown background` and the screen stays empty.
     pub fn with_initial(mut self, id: &'static str) -> Self {
         self.initial = Some(id);
         self

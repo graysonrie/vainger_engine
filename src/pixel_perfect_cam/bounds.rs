@@ -1,7 +1,14 @@
+//! Keeps the pixel-perfect camera inside optional world-space edges.
+
 use std::ops::DerefMut;
 
 use crate::prelude::*;
 
+/// Clamps [`PixelPerfectCamera`] to [`CameraBounds`] in
+/// [`PixelPerfectCameraControlsSet::Bounds`] during [`PostUpdate`].
+///
+/// Added by [`PixelPerfectCameraPlugin`]. The system no-ops when the camera
+/// has no [`CameraBounds`].
 pub struct CameraBoundsPlugin;
 
 impl Plugin for CameraBoundsPlugin {
@@ -26,6 +33,17 @@ fn clamp_camera_bounds(
     camera_transform.translation.y = clamped.y;
 }
 
+/// World-space limits for the edges of the pixel-perfect camera's view.
+///
+/// Insert this on the [`PixelPerfectCamera`] entity, or call
+/// [`PixelPerfectCameraQuery::set_bounds`]. Each field is how far that edge of
+/// the view may go. [`None`] leaves that side open.
+///
+/// ### NOTE:
+/// These are edges of the visible area, not limits on the camera center. The
+/// center stays half a canvas away from a finite edge. If the allowed span on
+/// an axis is smaller than the canvas, the camera is pinned to the midpoint of
+/// that span instead of trying to satisfy both edges.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct CameraBounds {
     /// Left edge of the allowed viewport. `None` = unbounded.
@@ -76,6 +94,11 @@ impl CameraBounds {
     }
 }
 
+/// Reads [`CameraBounds`] from the [`PixelPerfectCamera`] entity.
+///
+/// The system fails if that camera has no bounds component. [`Self::as_approximate_rect`]
+/// turns open edges into `f32::MIN` / `f32::MAX`, which will overflow a gizmo;
+/// use [`Self::as_debug_rect`] for drawing.
 #[derive(SystemParam)]
 pub struct CameraBoundsInfo<'w, 's> {
     bounds: Single<'w, 's, &'static CameraBounds, With<PixelPerfectCamera>>,

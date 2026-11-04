@@ -1,31 +1,50 @@
+//! Axis-aligned hitbox in world pixels.
+//!
+//! The position you pass to the query methods is where [`Hitbox`]'s anchor
+//! sits, not necessarily the sprite's visual center. [`Anchor::CENTER`] means
+//! that position is the box center.
+
 use crate::prelude::*;
 
-/// Represents a theoretical hitbox
+/// Axis-aligned box. `anchor` is the point that sits on the world position you pass in.
+///
+/// ### NOTE:
+/// This anchor is the hitbox's own. It is not kept in sync with a sprite
+/// [`Anchor`] unless you set them yourself, or use
+/// [`crate::aseprite::hitbox::AsepriteHitbox`], which writes both.
 #[derive(Clone, Debug, Component, Default)]
 pub struct Hitbox {
     size: UVec2,
     anchor: Anchor,
 }
 
+/// Bottom-left (`min`) and top-right (`max`) of a box, Y-up.
 #[derive(Clone, Debug, Copy)]
 pub struct MinMax {
+    /// Inclusive lower corner (left, bottom).
     pub min: Vec2,
+    /// Inclusive upper corner (right, top).
     pub max: Vec2,
 }
 impl MinMax {
+
     pub fn shrink_by_val(&self, val: Vec2) -> Self {
         MinMax {
             min: self.min + val,
-            max: self.max + val,
+            max: self.max - val,
         }
     }
 }
 
 impl Hitbox {
+    /// Width and height in pixels.
     pub fn size(&self) -> UVec2 {
         self.size
     }
 
+    /// `width` and `height` are in pixels. `anchor` uses Bevy's anchor space,
+    /// where [`Anchor::CENTER`] is `(0, 0)` and the box extends half a size
+    /// each way from there.
     pub const fn new(width: u32, height: u32, anchor: Anchor) -> Self {
         Self {
             size: uvec2(width, height),
@@ -67,8 +86,9 @@ impl Hitbox {
         })
     }
 
-    /// Nearly same functionality as `four_corners_in_world`
+    /// Bottom-left and top-right of this box when its anchor is at `world_pos`.
     ///
+    /// Same placement rules as [`Self::four_corners_in_world`].
     // TODO: see if this can be made any more efficient
     pub fn min_max_positions_in_world(&self, world_pos: Vec2) -> MinMax {
         let corners = self.four_corners_in_world(world_pos);
@@ -77,10 +97,12 @@ impl Hitbox {
         MinMax { min, max }
     }
 
+    /// Half the width and height, in pixels.
     #[inline]
     pub fn size_vec2_half(&self) -> Vec2 {
         self.size.as_vec2() / 2.
     }
+    /// Width and height as floats, in pixels.
     #[inline]
     pub fn size_vec2(&self) -> Vec2 {
         self.size.as_vec2()
@@ -96,6 +118,10 @@ impl Hitbox {
         point - (local_bottom_center - anchor) * size
     }
 
+    /// Offset from the anchor to the bottom-center of the box, in pixels.
+    ///
+    /// Add this to the anchor's world position to get that point in the world.
+    /// It is not itself a world position.
     pub fn bottom_center(&self) -> Vec2 {
         // The local-space bottom-center is at (0.0, -0.5).
         // To get this in the hitbox's local space, offset it by (-self.anchor) and scale by self.size.
@@ -107,10 +133,12 @@ impl Hitbox {
         (local_bottom_center - anchor) * size
     }
 
+    /// Width in pixels.
     pub fn width(&self) -> u32 {
         self.size.x
     }
 
+    /// `width / 2`, rounded down.
     pub fn width_half(&self) -> u32 {
         self.size.x / 2
     }

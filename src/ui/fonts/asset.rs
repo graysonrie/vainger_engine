@@ -5,29 +5,27 @@ use thiserror::Error;
 
 use crate::prelude::*;
 
-/// An 8×8 atlas font. Glyph index `n` is codepoint `32 + n`.
+/// Atlas font loaded from a `.font.ron` file. See [`BitmapFontSource`] for the file shape.
 ///
-/// Example .font.ron definition:
-///```ignore
-/// (
-/// image: "sfont_ascii.png",
-/// glyph_size: (8, 8),
-/// columns: 44,
-/// rows: 6,
-/// first_code: 32,
-/// last_code: 252,
-/// )
-/// ```
+/// Glyph index `n` is codepoint `first_code + n`, left to right, top to bottom.
+/// The example sheet uses `first_code = 32` (ASCII space).
 #[derive(Clone, Debug, Asset, TypePath)]
 pub struct BitmapFont {
+    /// Atlas image. Sampling should be nearest; the loader does not set that itself.
     pub image: Handle<Image>,
+    /// Grid layout built from the file's `glyph_size`, `columns`, and `rows`.
     pub layout: Handle<TextureAtlasLayout>,
+    /// Size of one glyph, in pixels. Bitmap text scales this by [`super::BitmapText::scale`].
     pub glyph_size: UVec2,
     first_code: u32,
     last_code: u32,
 }
 
 impl BitmapFont {
+    /// Atlas index for `c`, or [`None`] when `c` is outside `first_code..=last_code`.
+    ///
+    /// [`super::BitmapText`] falls back to `'?'` when this returns [`None`], and
+    /// skips the glyph entirely if `'?'` is also outside the range.
     pub fn glyph_index(&self, c: char) -> Option<usize> {
         let code = c as u32;
         if (self.first_code..=self.last_code).contains(&code) {
@@ -38,6 +36,27 @@ impl BitmapFont {
     }
 }
 
+/// On-disk description of a [`BitmapFont`], deserialized from `.font.ron`.
+///
+/// ```ignore
+/// (
+///     image: "sfont_ascii.png",
+///     glyph_size: (8, 8),
+///     columns: 44,
+///     rows: 6,
+///     first_code: 32,
+///     last_code: 252,
+/// )
+/// ```
+///
+/// `image` is resolved relative to the `.font.ron` file, not the asset root.
+/// `columns * rows` has to cover every code from `first_code` through `last_code`
+/// or later glyphs index off the end of the atlas. The loader does not check that.
+///
+/// ### NOTE:
+/// The image is loaded with Bevy's default sampler. The default app setup uses
+/// [`ImagePlugin::default_nearest`], which is what keeps these glyphs crisp.
+/// Without nearest sampling they blur when the canvas is upscaled.
 #[derive(Deserialize)]
 pub struct BitmapFontSource {
     image: String,

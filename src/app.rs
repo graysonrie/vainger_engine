@@ -2,17 +2,39 @@ use bevy_egui::EguiPlugin;
 use bevy_framepace::Limiter;
 
 use crate::{
-    aseprite::{animation::AsepriteAnimationPlugin, hitbox::AsepriteHitboxPlugin}, ldtk::int_grid_cells::IntGridCellsPlugin, movement::MovementPlugin, prelude::*, ui::UiPlugin,
+    aseprite::{
+        AsepriteExtPlugin, animation::AsepriteAnimationPlugin, hitbox::AsepriteHitboxPlugin,
+    },
+    ldtk::int_grid_cells::IntGridCellsPlugin,
+    movement::MovementPlugin,
+    prelude::*,
+    ui::UiPlugin,
 };
 
+/// Installs the engine's default 2D pixel-game plugins on [`App`].
 pub trait AppExt {
+    /// Window, nearest-neighbor sampling, LDtk, Aseprite animation, the
+    /// pixel-perfect camera, movement, UI, egui, and a 60 FPS cap.
+    ///
+    /// `game_res` is the low-resolution canvas size in pixels, for example
+    /// [`UFO_50`] or [`NES`]. The OS window opens at that same size
+    /// (`window_scale` of 1). Pass a larger scale to
+    /// [`WindowPluginExt::with_resolution_of`] yourself if you build the
+    /// [`WindowPlugin`] by hand and want each game pixel to cover more than
+    /// one screen pixel.
+    ///
+    /// ### NOTE:
+    /// This does not add [`crate::assets::AssetHelpersPlugin`] (loading `.aseprite`
+    /// files as LDtk tileset images). Add those when you need them.
+    ///
+    /// ### NOTE:
+    /// The present mode is [`bevy::window::PresentMode::Immediate`]. Vsync is
+    /// off; `bevy_framepace` is what holds the frame rate at 60. Dev builds
+    /// open the window unfocused so a reload does not steal editor focus.
     fn setup_for_default_2d_pixel_game(self, game_res: UVec2) -> Self;
 }
 
 impl AppExt for App {
-    /// Will add the PixelPerfectCameraPlugin and set up DefaultPlugins
-    ///
-    /// Sets up `bevy_framepace` to cap the FPS at 60
     fn setup_for_default_2d_pixel_game(mut self, game_res: UVec2) -> Self {
         // Dev builds stay unfocused so cargo-watch reloads don't steal editor focus (macOS).
         let window_plugin = WindowPlugin::default()
@@ -31,6 +53,7 @@ impl AppExt for App {
         )
         .add_plugins(LdtkPlugin)
         .add_plugins(AsepriteAnimationPlugin)
+        .add_plugins(AsepriteExtPlugin)
         .add_plugins(PixelPerfectCameraPlugin::of_size(game_res))
         .add_plugins(PrimitiveAssetsPlugin)
         .add_plugins(AsepriteHitboxPlugin)

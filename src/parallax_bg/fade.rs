@@ -9,11 +9,18 @@ use super::{
 /// `duration` of `0.0` swaps instantly.
 #[derive(Message, Clone, Debug)]
 pub struct CrossfadeBackground {
+    /// [`super::BackgroundDef::id`] to fade to.
     pub to: &'static str,
+    /// Length of the fade, in seconds. `0.0` swaps on this frame.
     pub duration: f32,
 }
 
 impl CrossfadeBackground {
+    /// Fade to the background `to` over `duration` seconds.
+    ///
+    /// Write it with a [`MessageWriter`]. A request whose `to` is already the
+    /// visible background (or the one currently fading in) is ignored. An
+    /// unknown id logs a warning and leaves the current background up.
     #[allow(dead_code)]
     pub fn new(to: &'static str, duration: f32) -> Self {
         Self { to, duration }

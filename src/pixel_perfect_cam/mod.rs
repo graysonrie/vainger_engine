@@ -1,3 +1,31 @@
+//! Low-resolution game camera, upscaled into the window with nearest-neighbor sampling.
+//!
+//! [`PixelPerfectCameraPlugin`] spawns two cameras:
+//!
+//! - [`PixelPerfectCamera`] renders the world and Bevy UI into a canvas the size
+//!   of the game resolution ([`GAME_LAYERS`], layer 0). Sprites with no render
+//!   layer land here, which is what you want.
+//! - [`OuterCamera`] draws that canvas into the window ([`OUTER_LAYERS`], layer 1).
+//!
+//! [`EditorUiCamera`] is a third camera, for egui only. It is the primary egui
+//! context. Do not spawn another one, and do not put gameplay sprites on it.
+//!
+//! ### NOTE:
+//! World sprites placed on [`OUTER_LAYERS`] skip the low-res canvas and are
+//! drawn in window space, so they will not scale with the game pixels.
+//!
+//! ### NOTE:
+//! The canvas is a fixed texture created at startup from
+//! [`PixelPerfectCameraConfig`]. Changing `game_width` or `game_height` later
+//! does not resize it.
+//!
+//! ### NOTE:
+//! Upscale is nearest-neighbor, but it is only an even pixel grid when the
+//! window size is an integer multiple of the game resolution.
+//! [`crate::app::AppExt::setup_for_default_2d_pixel_game`] opens the window at
+//! 1×. A window that is not a multiple of the canvas (including after a
+//! resize) maps some game pixels to more screen pixels than others.
+
 pub mod bounds;
 mod config;
 pub mod follow;
@@ -15,10 +43,17 @@ pub use follow::PixelPerfectCameraFollow;
 #[allow(unused)]
 pub use panner::CameraPanner2dBundle;
 
-/// These systems run in the Update event
+/// Camera control stages, chained in [`PostUpdate`]: [`Follow`](Self::Follow),
+/// then [`Bounds`](Self::Bounds).
+///
+/// Move the followed entity in [`Update`] (or earlier in [`PostUpdate`]) so the
+/// camera sees the position on the same frame. Follow does nothing useful
+/// unless exactly one [`PixelPerfectCameraFollow`] exists; see that type.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PixelPerfectCameraControlsSet {
+    /// Smooths [`PixelPerfectCamera`] toward [`PixelPerfectCameraFollow`].
     Follow,
+    /// Clamps the camera to [`CameraBounds`], if that component is present.
     Bounds,
 }
 
@@ -67,8 +102,14 @@ struct WindowSurfaceCamera;
 /// Physical window rect the game canvas may occupy (leftover after editor panels).
 ///
 /// `None` letterboxes into the full window.
+///
+/// ### NOTE:
+/// A system in [`PreUpdate`] sets `physical_rect` back to [`None`] every frame.
+/// Write it every frame from [`Update`] or later, or the assignment from last
+/// frame is gone before the cameras sync.
 #[derive(Resource, Default, Clone, Copy)]
 pub struct GameViewSlot {
+    /// Physical pixels of the primary window. `None` uses the full window.
     pub physical_rect: Option<URect>,
 }
 
@@ -81,12 +122,22 @@ pub struct GameCanvas;
 #[allow(dead_code)]
 pub struct GameCanvasImage(pub Handle<Image>);
 
+/// Spawns the low-res canvas, the inner and outer cameras, and the follow / bounds systems.
+///
+/// [`Self::of_size`] is the usual constructor. The plugin also installs
+/// panning ([`CameraPanner2dBundle`]), [`bounds::CameraBoundsPlugin`], and
+/// [`follow::PixelPerfectCameraFollowPlugin`].
+/// [`crate::app::AppExt::setup_for_default_2d_pixel_game`] adds this plugin.
 pub struct PixelPerfectCameraPlugin {
+    /// Canvas size copied into [`PixelPerfectCameraConfig`] at startup.
     pub config: PixelPerfectCameraConfig,
 }
 
 impl PixelPerfectCameraPlugin {
-    /// Tip: use `pixel_perfect_cam_2d::window_size_constants` to pick a screen size
+    /// Canvas and camera sized to `size`, in game pixels.
+    ///
+    /// Presets live in [`window`]: [`NES`], [`UFO_50`], [`UFO_50_MOBILE`],
+    /// [`PIZZA_TOWER`], [`window::ANTONBLAST`].
     pub fn of_size(size: UVec2) -> Self {
         let game_width = size.x as f32;
         let game_height = size.y as f32;
@@ -324,6 +375,10 @@ fn reset_game_view_slot(mut slot: ResMut<GameViewSlot>) {
     slot.physical_rect = None;
 }
 
+/// Read and write the [`PixelPerfectCamera`] transform from a system parameter.
+///
+/// There is exactly one inner camera. This param fails the system if that
+/// camera is missing.
 #[derive(SystemParam)]
 pub struct PixelPerfectCameraQuery<'w, 's> {
     commands: Commands<'w, 's>,
@@ -341,16 +396,22 @@ impl PixelPerfectCameraQuery<'_, '_> {
         &mut self.camera.1
     }
 
+    /// Camera center X, in world pixels.
     pub fn get_x(&self) -> f32 {
         self.transform().translation.x
     }
+    /// Camera center Y, in world pixels.
     pub fn get_y(&self) -> f32 {
         self.transform().translation.y
     }
-    /// Returns the current center of what the camera is looking at
+    /// World-space center of the view, in pixels. Y-up.
     pub fn get_xy(&self) -> Vec2 {
         self.transform().get_2d_pos()
     }
+    /// Move the camera center to `pos`. Z is set to `0`.
+    ///
+    /// [`CameraBounds`] are applied later in [`PostUpdate`], so a position
+    /// outside the bounds will be pulled back before the frame renders.
     pub fn set_xy(&mut self, pos: Vec2) {
         self.transform_mut().translation = pos.extend(0.);
     }
@@ -363,16 +424,29 @@ impl PixelPerfectCameraQuery<'_, '_> {
     pub fn set_viewport_top_left(&mut self, top_left: Vec2) {
         self.set_xy(top_left - self.config.viewport_top_left());
     }
+    /// Canvas width in pixels. This is the config value, not the OS window.
     pub fn get_view_width(&self) -> f32 {
         self.config.game_width
     }
+    /// Canvas height in pixels. This is the config value, not the OS window.
     pub fn get_view_height(&self) -> f32 {
         self.config.game_height
     }
+    /// Half the canvas size, `(width / 2, height / 2)`.
     pub fn viewport_dimensions_half(&self) -> Vec2 {
         self.config.viewport_dimensions_half()
     }
 
+    /// Replace [`CameraBounds`] on the inner camera.
+    ///
+    /// Each argument is an edge of the allowed view in world pixels, or [`None`]
+    /// to leave that side open. These are viewport edges, not limits on the
+    /// camera center: `xmin` is the leftmost pixel the view may show.
+    ///
+    /// ### NOTE:
+    /// This inserts the component again on every call. A region smaller than
+    /// the canvas on an axis pins the camera to the middle of that region.
+    /// See [`CameraBounds`].
     pub fn set_bounds(
         &mut self,
         xmin: Option<f32>,
