@@ -1,7 +1,4 @@
-use bevy::{
-    asset::RenderAssetUsages,
-    mesh::{Indices, RegularPolygonMeshBuilder},
-};
+use bevy::{asset::RenderAssetUsages, mesh::Indices};
 
 use crate::prelude::*;
 

@@ -16,3 +16,4 @@ pub mod prelude;
 mod resources;
 pub mod ui;
 mod util;
+pub mod collision;

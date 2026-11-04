@@ -162,6 +162,8 @@ impl IntGridCells {
             layer_name: collision_layer_name,
         })
     }
+
+
 }
 
 /// Copies the spawned level's Collision IntGrid onto the drive world's [`IntGridCells`].
@@ -192,92 +194,3 @@ fn populate_int_grid_cells(
     }
 }
 
-#[derive(Clone, Default)]
-pub struct TerrainContactsX {
-    pub left: bool,
-    pub right: bool,
-    pub output: Vec2,
-}
-
-#[derive(Clone, Default)]
-pub struct TerrainContactsY {
-    pub floor: bool,
-    pub ceiling: bool,
-    pub output: Vec2,
-}
-
-pub trait CollisionCheck {
-    fn is_colliding(&self, pos: Vec2, hitbox: &Hitbox) -> bool;
-    #[must_use]
-    /// Returns the output position. Assign that to the transform.translation, or whatever
-    /// you are manipulating
-    fn move_and_collide_x(
-        &self,
-        pos: Vec2,
-        hitbox: &Hitbox,
-        velocity: &mut Velocity2D,
-    ) -> TerrainContactsX;
-    #[must_use]
-    /// Returns the output position. Assign that to the transform.translation, or whatever
-    /// you are manipulating
-    fn move_and_collide_y(
-        &self,
-        pos: Vec2,
-        hitbox: &Hitbox,
-        velocity: &mut Velocity2D,
-    ) -> TerrainContactsY;
-}
-
-impl CollisionCheck for IntGridCells {
-    fn is_colliding(&self, pos: Vec2, hitbox: &Hitbox) -> bool {
-        self.overlaps_hitbox(hitbox, pos)
-    }
-
-    fn move_and_collide_x(
-        &self,
-        mut pos: Vec2,
-        hitbox: &Hitbox,
-        velocity: &mut Velocity2D,
-    ) -> TerrainContactsX {
-        if velocity.x != 0. && self.is_colliding(pos.add_to_x(velocity.x), hitbox) {
-            while !self.is_colliding(pos.add_to_x(velocity.x.signum()), hitbox) {
-                pos.x += velocity.x.signum();
-            }
-            velocity.x = 0.;
-        }
-        pos.x += velocity.x;
-        let left = self.is_colliding(pos.add_to_x(-1.), hitbox);
-        let right = self.is_colliding(pos.add_to_x(1.), hitbox);
-
-        TerrainContactsX {
-            left,
-            right,
-            output: pos,
-        }
-    }
-
-    fn move_and_collide_y(
-        &self,
-        mut pos: Vec2,
-        hitbox: &Hitbox,
-        velocity: &mut Velocity2D,
-    ) -> TerrainContactsY {
-        if velocity.y != 0. && self.is_colliding(pos.add_to_y(velocity.y), hitbox) {
-            // ceiling = velocity.y.is_sign_positive();
-            // floor = velocity.y.is_sign_negative();
-            while !self.is_colliding(pos.add_to_y(velocity.y.signum()), hitbox) {
-                pos.y += velocity.y.signum();
-            }
-            velocity.y = 0.;
-        }
-        pos.y += velocity.y;
-        let floor = self.is_colliding(pos.add_to_y(-1.), hitbox);
-        let ceiling = self.is_colliding(pos.add_to_y(1.), hitbox);
-
-        TerrainContactsY {
-            floor,
-            ceiling,
-            output: pos,
-        }
-    }
-}
