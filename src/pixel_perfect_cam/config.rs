@@ -42,6 +42,11 @@ impl PixelPerfectCameraConfig {
         Vec2::new(self.viewport_width_half(), self.viewport_height_half())
     }
 
+    #[inline]
+    pub fn viewport_dimensions(&self) -> Vec2 {
+        vec2(self.game_width, self.game_height)
+    }
+
     /// Canvas width in pixels. Same value as [`Self::game_width`].
     #[inline]
     pub fn viewport_width(&self) -> f32 {

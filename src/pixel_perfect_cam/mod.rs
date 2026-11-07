@@ -31,6 +31,7 @@ mod config;
 pub mod follow;
 mod panner;
 pub mod pointer;
+pub mod screen_transition;
 #[cfg(target_arch = "wasm32")]
 mod web_color;
 
@@ -75,8 +76,10 @@ pub use window::{NES, PIZZA_TOWER, UFO_50, UFO_50_MOBILE, WindowPluginExt};
 /// Low-resolution camera that renders the game (and Bevy UI) into [`GameCanvasImage`].
 ///
 /// This is the movable world camera: panning and stage-centering target it.
-#[derive(Component)]
+#[derive(Component, Default)]
+#[require(Transform)]
 pub struct PixelPerfectCamera;
+
 
 /// Render layers for world content and Bevy UI drawn into the low-res canvas.
 pub const GAME_LAYERS: RenderLayers = RenderLayers::layer(0);
@@ -150,12 +153,17 @@ impl PixelPerfectCameraPlugin {
     }
 }
 
+/// The set that pixel perfect cameras are finalized in
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PixelPerfectCamCreationSet;
+
 impl Plugin for PixelPerfectCameraPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.config.clone());
         app.init_resource::<GameViewSlot>();
         app.add_plugins(panner::CameraPanner2dPlugin);
         app.add_plugins(bounds::CameraBoundsPlugin);
+        app.add_plugins(screen_transition::ScreenTransitionPlugin);
         app.add_plugins(follow::PixelPerfectCameraFollowPlugin);
 
         app.configure_sets(PostUpdate, {
@@ -166,6 +174,12 @@ impl Plugin for PixelPerfectCameraPlugin {
         #[cfg(target_arch = "wasm32")]
         app.add_systems(Update, web_color::tag_canvas_color_space);
         app.add_systems(PreUpdate, reset_game_view_slot);
+        app.add_systems(
+            PostUpdate,
+            finalize_pixel_perfect_camera
+                .before(CameraUpdateSystems)
+                .in_set(PixelPerfectCamCreationSet),
+        );
         app.add_systems(
             PostUpdate,
             sync_window_cameras
@@ -215,13 +229,13 @@ fn setup(
     let canvas_handle = images.add(canvas);
     commands.insert_resource(GameCanvasImage(canvas_handle.clone()));
 
-    let inner_projection = Projection::from(OrthographicProjection {
-        scaling_mode: ScalingMode::Fixed {
-            width: config.game_width,
-            height: config.game_height,
-        },
-        ..OrthographicProjection::default_2d()
-    });
+    // let inner_projection = Projection::from(OrthographicProjection {
+    //     scaling_mode: ScalingMode::Fixed {
+    //         width: config.game_width,
+    //         height: config.game_height,
+    //     },
+    //     ..OrthographicProjection::default_2d()
+    // });
     // Letterbox in projection space so we do not need a custom GPU viewport
     // (those can exceed the swap chain for a frame and DeviceLost the renderer).
     let outer_projection = Projection::from(OrthographicProjection {
@@ -291,21 +305,52 @@ fn setup(
     ));
 
     // Inner camera: world + Bevy UI → NES-resolution canvas.
-    commands.spawn((
-        Camera2d,
-        Camera {
-            order: -1,
-            clear_color: ClearColorConfig::Custom(Color::srgb(0.1, 0.1, 0.1)),
-            ..default()
-        },
-        RenderTarget::Image(canvas_handle.into()),
-        inner_projection,
-        Msaa::Off,
-        PixelPerfectCamera,
-        IsDefaultUiCamera,
-        GAME_LAYERS.clone(),
-        Transform::from_translation(Vec3::ZERO),
-    ));
+    // commands.spawn((
+    //     Camera2d,
+    //     Camera {
+    //         order: -1,
+    //         clear_color: ClearColorConfig::Custom(Color::srgb(0.1, 0.1, 0.1)),
+    //         ..default()
+    //     },
+    //     RenderTarget::Image(canvas_handle.into()),
+    //     inner_projection,
+    //     Msaa::Off,
+    //     PixelPerfectCamera,
+    //     IsDefaultUiCamera,
+    //     GAME_LAYERS.clone(),
+    //     Transform::from_translation(Vec3::ZERO),
+    // ));
+}
+
+fn finalize_pixel_perfect_camera(
+    mut commands: Commands,
+    q: Query<Entity, Added<PixelPerfectCamera>>,
+    config: Res<PixelPerfectCameraConfig>,
+    game_canvas: Res<GameCanvasImage>,
+) {
+    for ent in q {
+        let inner_projection = Projection::from(OrthographicProjection {
+            scaling_mode: ScalingMode::Fixed {
+                width: config.game_width,
+                height: config.game_height,
+            },
+            ..OrthographicProjection::default_2d()
+        });
+
+        commands.entity(ent).insert((
+            Camera2d,
+            Camera {
+                order: -1,
+                clear_color: ClearColorConfig::Custom(Color::srgb(0.1, 0.1, 0.1)),
+                ..default()
+            },
+            RenderTarget::Image(game_canvas.0.clone().into()),
+            inner_projection,
+            Msaa::Off,
+            IsDefaultUiCamera,
+            GAME_LAYERS.clone(),
+        ));
+    }
 }
 
 /// Ensures the window cannot shrink below the configured game resolution.
