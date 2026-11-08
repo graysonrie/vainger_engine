@@ -27,7 +27,6 @@ pub struct MinMax {
     pub max: Vec2,
 }
 impl MinMax {
-
     pub fn shrink_by_val(&self, val: Vec2) -> Self {
         MinMax {
             min: self.min + val,

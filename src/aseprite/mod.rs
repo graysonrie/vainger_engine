@@ -8,10 +8,10 @@
 use std::time::Duration;
 
 use crate::{aseprite::types::TileSprite, prelude::*};
+pub mod animation;
 pub mod hitbox;
 pub mod types;
 pub mod util;
-pub mod animation;
 
 /// Hitbox taken from the opaque pixels of one Aseprite frame.
 ///

@@ -10,11 +10,12 @@
 pub mod app;
 pub mod aseprite;
 pub mod assets;
+pub mod collision;
 pub mod colors;
-pub mod inputs;
 pub mod components;
 mod debug_draw;
 mod hitbox;
+pub mod inputs;
 pub mod ldtk;
 pub mod lifecycle;
 pub mod mesh;
@@ -25,4 +26,3 @@ pub mod prelude;
 mod resources;
 pub mod ui;
 mod util;
-pub mod collision;

@@ -3,12 +3,14 @@ use crate::prelude::*;
 /// Low-resolution canvas size, in pixels.
 ///
 /// [`super::PixelPerfectCameraPlugin`] inserts this from its config at startup.
-/// The render target and both camera projections are created from these fields
-/// once, in the startup system.
+/// This is the full base rectangle. Each [`super::PixelPerfectCamera`] receives
+/// one cell of it. The outer camera's letterbox minimum is kept in step with
+/// these fields.
 ///
 /// ### NOTE:
-/// Changing `game_width` or `game_height` after startup does not resize the
-/// canvas or the projections. Restart the app to change the game resolution.
+/// [`super::viewport_top_left`](Self::viewport_top_left) is the corner of the
+/// full base canvas at zoom 1. A split or zoomed camera's visible corner is
+/// smaller; use [`super::PixelPerfectCameraQuery`].
 #[derive(Resource, Clone, Default)]
 pub struct PixelPerfectCameraConfig {
     /// Canvas width in pixels.
@@ -65,12 +67,12 @@ impl PixelPerfectCameraConfig {
         self.height_half()
     }
 
-    /// Offset from the camera center to the top-left of the view, Y-up.
+    /// Offset from a zoom-1 full-frame camera center to the top-left of the base
+    /// canvas, Y-up.
     ///
-    /// This is `(-width / 2, height / 2)`, not a world position. It assumes the
-    /// camera is looking at its own origin. Add the camera translation to get
-    /// the corner in the world; [`super::PixelPerfectCameraQuery::viewport_top_left`]
-    /// does that.
+    /// This is `(-width / 2, height / 2)`, not a world position. A split or
+    /// zoomed camera does not use this offset. Add the camera translation to a
+    /// half-view computed from that camera's cell and [`super::CameraZoom`].
     #[inline]
     pub fn viewport_top_left(&self) -> Vec2 {
         Vec2::new(-self.viewport_width_half(), self.viewport_height_half())

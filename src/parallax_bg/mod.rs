@@ -6,6 +6,11 @@
 //!
 //! The game crate supplies the `.aseprite` path and a [`LoadingState`]; this
 //! plugin loads that sheet and spawns the configured stacks.
+//!
+//! ### NOTE:
+//! The stack is one set of world sprites. It follows the earliest
+//! [`PixelPerfectCamera`] and covers that camera's visible view. Other screens
+//! show those same tiles, which only line up for the camera being followed.
 
 mod fade;
 mod scroll;

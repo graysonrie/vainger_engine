@@ -1,6 +1,8 @@
 //! Small extensions used throughout the engine. Methods are on Bevy types
 //! (`Transform`, `Vec2`, `Sprite`, and so on).
 
+use std::fmt::Display;
+
 use crate::prelude::*;
 
 /// Extra constructors and accessors for transforms.
@@ -129,7 +131,10 @@ pub trait ResultExt {
     fn warn_if_err(&self);
 }
 
-impl<T> ResultExt for anyhow::Result<T> {
+impl<T, E> ResultExt for Result<T, E>
+where
+    E: Display,
+{
     fn warn_if_err(&self) {
         if let Err(e) = self {
             warn!("{e}")

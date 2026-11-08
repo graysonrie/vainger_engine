@@ -3,16 +3,19 @@ use crate::prelude::*;
 use super::{ParallaxLayerNode, ParallaxScroller};
 
 pub(crate) fn update_parallax_scroll(
-    camera: Single<&Transform, With<PixelPerfectCamera>>,
-    config: Res<PixelPerfectCameraConfig>,
+    cameras: Query<(&ScreenIndex, &Transform, &ScreenSlot, &CameraZoom), With<PixelPerfectCamera>>,
     time: Res<Time>,
     mut layers: Query<
         (&ParallaxLayerNode, &mut ParallaxScroller, &mut Transform),
         Without<PixelPerfectCamera>,
     >,
 ) {
+    let Some((_, camera, slot, zoom)) = cameras.iter().min_by_key(|(index, _, _, _)| index.0)
+    else {
+        return;
+    };
     let camera_xy = camera.get_2d_pos();
-    let view = Vec2::new(config.game_width, config.game_height);
+    let view = slot.visible_world_size(zoom.0);
     let dt = time.delta_secs();
 
     for (layer, mut scroller, mut transform) in &mut layers {

@@ -1,14 +1,28 @@
 use crate::prelude::*;
 use bevy::{ecs::system::SystemParam, window::PrimaryWindow};
 
-/// Can get the cursor world position, respecting the pixel perfect camera
+/// Can get the cursor world position, respecting the pixel perfect cameras.
 ///
-/// Works for both desktop and mobile targets
+/// The cursor is tested against each screen's canvas. The hit uses that
+/// camera's position and [`CameraZoom`]. A letterbox bar or an empty grid cell
+/// is not a hit.
+///
+/// Works for both desktop and mobile targets.
 #[derive(SystemParam)]
 pub struct GamePointer<'w, 's> {
     window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
     outer: Single<'w, 's, (&'static Camera, &'static GlobalTransform), With<OuterCamera>>,
-    inner: Single<'w, 's, &'static GlobalTransform, With<PixelPerfectCamera>>,
+    cameras: Query<
+        'w,
+        's,
+        (
+            &'static GlobalTransform,
+            &'static ScreenSlot,
+            &'static CameraZoom,
+        ),
+        With<PixelPerfectCamera>,
+    >,
+    canvases: Query<'w, 's, (&'static Transform, &'static Sprite), With<GameCanvas>>,
     mouse: Res<'w, ButtonInput<MouseButton>>,
     touches: Res<'w, Touches>,
 }
@@ -33,21 +47,47 @@ impl GamePointer<'_, '_> {
         self.touches.first_pressed_position()
     }
 
-    /// Cursor or finger position in game-pixel world space (the inner camera, Y-up).
+    /// Cursor or finger position in world pixels (Y-up), on the screen under the pointer.
     ///
-    /// [`None`] when the pointer is outside the OS window. On Windows, dragging
-    /// with the left button held captures the mouse; once the cursor leaves the
-    /// client area this returns [`None`] even though the button is still down.
+    /// [`None`] when the pointer is outside the OS window, over the letterbox,
+    /// or over an empty grid cell. On Windows, dragging with the left button
+    /// held captures the mouse; once the cursor leaves the client area this
+    /// returns [`None`] even though the button is still down.
+    ///
+    /// A point on the shared edge of two cells belongs to the earlier screen
+    /// (the one higher in the grid, then the one further left).
     ///
     /// ### NOTE:
-    /// Letterbox bars are still inside the window, so a cursor there returns a
-    /// world position that can fall outside the canvas. [`Self::is_inside_window`]
-    /// does not mean "inside the game view".
+    /// [`Self::is_inside_window`] does not mean "inside a game view".
     pub fn position(&self) -> Option<Vec2> {
         let cursor = self.screen_position()?;
         let (cam, transform) = *self.outer;
         let on_canvas = cam.viewport_to_world_2d(transform, cursor).ok()?;
-        Some(self.inner.translation().truncate() + on_canvas)
+
+        let mut best: Option<PointerHit> = None;
+        for (camera_transform, slot, zoom) in &self.cameras {
+            let Ok((sprite_transform, sprite)) = self.canvases.get(slot.canvas) else {
+                continue;
+            };
+            let half = sprite.custom_size.unwrap_or(Vec2::ZERO) * 0.5;
+            let local = on_canvas - sprite_transform.translation.truncate();
+            let inside =
+                local.x >= -half.x && local.x <= half.x && local.y >= -half.y && local.y <= half.y;
+            if !inside {
+                continue;
+            }
+            let world = camera_transform.translation().truncate()
+                + local / super::layout::effective_zoom(zoom.0);
+            let hit = PointerHit {
+                cell_min: slot.rect.min,
+                world,
+            };
+            let closer = best.as_ref().is_none_or(|best| hit.is_before(best));
+            if closer {
+                best = Some(hit);
+            }
+        }
+        best.map(|hit| hit.world)
     }
 
     /// Whether the mouse is over the window, or a finger is down.
@@ -74,5 +114,17 @@ impl GamePointer<'_, '_> {
         self.mouse.pressed(MouseButton::Left)
             || self.touches.any_just_pressed()
             || self.touches.iter().next().is_some()
+    }
+}
+
+struct PointerHit {
+    cell_min: UVec2,
+    world: Vec2,
+}
+
+impl PointerHit {
+    fn is_before(&self, other: &Self) -> bool {
+        self.cell_min.y < other.cell_min.y
+            || (self.cell_min.y == other.cell_min.y && self.cell_min.x < other.cell_min.x)
     }
 }

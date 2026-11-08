@@ -123,15 +123,15 @@ impl IntGridCells {
             return false;
         };
 
-        self.cells[(cell.0 as usize, cell.1 as usize)] != 0
+        self.cells[(cell.y as usize, cell.x as usize)] != 0
     }
 
     /// Returns the x,y pos of the LDtk cell that this world
     /// position hits
-    fn cell_at(&self, world: Vec2) -> Option<(i32, i32)> {
+    fn cell_at(&self, world: Vec2) -> Option<GridCell> {
         let x = (world.x / self.cell_size as f32).floor() as i32;
         let y = (world.y / self.cell_size as f32).floor() as i32;
-        (x >= 0 && y >= 0 && x < self.width && y < self.height).then_some((x, y))
+        (x >= 0 && y >= 0 && x < self.width && y < self.height).then_some(GridCell { x, y })
     }
 
     /// Builds a grid from the level's `collision_layer_name` IntGrid.
@@ -245,4 +245,9 @@ fn populate_int_grid_cells(
             }
         }
     }
+}
+
+struct GridCell {
+    x: i32,
+    y: i32,
 }

@@ -5,8 +5,9 @@ use crate::{pixel_perfect_cam::follow::PixelPerfectCameraFollow, prelude::*};
 /// Entity the pixel-perfect camera follows, driven by WASD or the left stick.
 ///
 /// `speed` in [`Self::new`] is pixels per second. The bundle inserts
-/// [`PixelPerfectCameraFollow`], so it counts as the one follower that plugin
-/// requires. See that type for what happens if a second follower also exists.
+/// [`PixelPerfectCameraFollow`] with no camera target, so it drives the only
+/// screen. With more than one [`PixelPerfectCamera`], set
+/// [`PixelPerfectCameraFollow::camera`] or the panner will not move a camera.
 ///
 /// ### NOTE:
 /// The bundle includes a visible 8×8 black [`Sprite`] at the entity origin.

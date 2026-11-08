@@ -1,23 +1,37 @@
-//! Low-resolution game camera, upscaled into the window with nearest-neighbor sampling.
+//! Low-resolution game cameras, upscaled into the window with nearest-neighbor sampling.
 //!
-//! [`PixelPerfectCameraPlugin`] spawns two cameras:
+//! [`PixelPerfectCameraPlugin`] spawns the window cameras. Each
+//! [`PixelPerfectCamera`] you spawn is one screen:
 //!
-//! - [`PixelPerfectCamera`] renders the world and Bevy UI into a canvas the size
-//!   of the game resolution ([`GAME_LAYERS`], layer 0). Sprites with no render
-//!   layer land here, which is what you want.
-//! - [`OuterCamera`] draws that canvas into the window ([`OUTER_LAYERS`], layer 1).
+//! - The camera renders the world ([`GAME_LAYERS`], layer 0) into its own cell
+//!   of the base resolution. Sprites with no render layer land here.
+//! - Spawn more than one and they pack into a grid: one is the full frame, two
+//!   are left and right, three or more fill `ceil(sqrt(n))` columns. Empty
+//!   cells stay black.
+//! - [`OuterCamera`] draws those cells into the window ([`OUTER_LAYERS`], layer 1).
 //!
-//! [`EditorUiCamera`] is a third camera, for egui only. It is the primary egui
-//! context. Do not spawn another one, and do not put gameplay sprites on it.
+//! [`EditorUiCamera`] is for egui only. It is the primary egui context. Do not
+//! spawn another one, and do not put gameplay sprites on it.
+//!
+//! [`CameraZoom`] scales how much world a camera sees. `1.0` is one world pixel
+//! per canvas pixel. `2.0` shows half the cell and draws each world pixel as a
+//! 2×2 block. Other values are applied as-is, so fractions shimmer.
+//!
+//! Bevy UI is drawn by the earliest camera only ([`IsDefaultUiCamera`]). Point a
+//! UI node at another camera if that screen needs its own UI. Every camera sees
+//! the same world layers.
 //!
 //! ### NOTE:
 //! World sprites placed on [`OUTER_LAYERS`] skip the low-res canvas and are
 //! drawn in window space, so they will not scale with the game pixels.
 //!
 //! ### NOTE:
-//! The canvas is a fixed texture created at startup from
-//! [`PixelPerfectCameraConfig`]. Changing `game_width` or `game_height` later
-//! does not resize it.
+//! Layers 2 and above belong to each screen's fade overlay. A sprite on one of
+//! those layers is visible to that screen only.
+//!
+//! ### NOTE:
+//! A shared world-space parallax stack can only follow one camera. It follows
+//! the earliest screen. Other screens see those same tiles.
 //!
 //! ### NOTE:
 //! Upscale is nearest-neighbor, but it is only an even pixel grid when the
@@ -29,6 +43,7 @@
 pub mod bounds;
 mod config;
 pub mod follow;
+mod layout;
 mod panner;
 pub mod pointer;
 pub mod screen_transition;
@@ -38,9 +53,11 @@ mod web_color;
 use crate::pixel_perfect_cam::bounds::CameraBounds;
 use crate::prelude::*;
 pub use config::*;
+use thiserror::Error;
 pub mod window;
 pub use bounds::CameraBoundsInfo;
 pub use follow::PixelPerfectCameraFollow;
+pub use layout::{ScreenIndex, ScreenSlot};
 #[allow(unused)]
 pub use panner::CameraPanner2dBundle;
 
@@ -48,8 +65,8 @@ pub use panner::CameraPanner2dBundle;
 /// then [`Bounds`](Self::Bounds).
 ///
 /// Move the followed entity in [`Update`] (or earlier in [`PostUpdate`]) so the
-/// camera sees the position on the same frame. Follow does nothing useful
-/// unless exactly one [`PixelPerfectCameraFollow`] exists; see that type.
+/// camera sees the position on the same frame. Each follower names the camera
+/// it drives. See [`PixelPerfectCameraFollow`].
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PixelPerfectCameraControlsSet {
     /// Smooths [`PixelPerfectCamera`] toward [`PixelPerfectCameraFollow`].
@@ -58,11 +75,8 @@ pub enum PixelPerfectCameraControlsSet {
     Bounds,
 }
 
-use bevy::camera::RenderTarget;
 use bevy::camera::visibility::RenderLayers;
-use bevy::render::render_resource::{
-    BlendState, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
-};
+use bevy::render::render_resource::BlendState;
 use bevy::{
     camera::{CameraOutputMode, CameraUpdateSystems, ScalingMode, Viewport},
     prelude::*,
@@ -73,13 +87,30 @@ use bevy_egui::{EguiGlobalSettings, EguiPostUpdateSet, PrimaryEguiContext};
 #[allow(unused_imports)]
 pub use window::{NES, PIZZA_TOWER, UFO_50, UFO_50_MOBILE, WindowPluginExt};
 
-/// Low-resolution camera that renders the game (and Bevy UI) into [`GameCanvasImage`].
+/// Low-resolution camera that renders the world into one cell of the base canvas.
 ///
-/// This is the movable world camera: panning and stage-centering target it.
+/// Spawn one per screen. The layout pass packs them into a grid and gives each
+/// its own render target. [`CameraZoom`] is required and defaults to `1.0`.
 #[derive(Component, Default)]
-#[require(Transform)]
+#[require(Transform, CameraZoom)]
 pub struct PixelPerfectCamera;
 
+/// How much world this camera sees, relative to its cell.
+///
+/// `1.0` maps one world pixel to one canvas pixel. `2.0` shows half of the cell
+/// and draws each world pixel as a 2×2 block. The value is applied directly, so
+/// a fraction does not land on whole pixels and the picture shimmers.
+///
+/// ### NOTE:
+/// Values `<= 0` are treated as `1.0`.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct CameraZoom(pub f32);
+
+impl Default for CameraZoom {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
 
 /// Render layers for world content and Bevy UI drawn into the low-res canvas.
 pub const GAME_LAYERS: RenderLayers = RenderLayers::layer(0);
@@ -116,18 +147,14 @@ pub struct GameViewSlot {
     pub physical_rect: Option<URect>,
 }
 
-/// Marker for the sprite that displays the low-res canvas in the high-res world.
+/// Marker for the sprite that displays one camera's low-res cell.
 #[derive(Component)]
 pub struct GameCanvas;
 
-/// Handle to the NES-resolution render target (hook for future palette post-process).
-#[derive(Resource, Clone)]
-#[allow(dead_code)]
-pub struct GameCanvasImage(pub Handle<Image>);
-
-/// Spawns the low-res canvas, the inner and outer cameras, and the follow / bounds systems.
+/// Spawns the window cameras and the follow / bounds / layout systems.
 ///
-/// [`Self::of_size`] is the usual constructor. The plugin also installs
+/// [`Self::of_size`] is the usual constructor. Gameplay cameras are not spawned
+/// here: spawn a [`PixelPerfectCamera`] for each screen. The plugin also installs
 /// panning ([`CameraPanner2dBundle`]), [`bounds::CameraBoundsPlugin`], and
 /// [`follow::PixelPerfectCameraFollowPlugin`].
 /// [`crate::app::AppExt::setup_for_default_2d_pixel_game`] adds this plugin.
@@ -166,20 +193,21 @@ impl Plugin for PixelPerfectCameraPlugin {
         app.add_plugins(screen_transition::ScreenTransitionPlugin);
         app.add_plugins(follow::PixelPerfectCameraFollowPlugin);
 
-        app.configure_sets(PostUpdate, {
-            use PixelPerfectCameraControlsSet::*;
-            (Follow, Bounds).chain()
-        });
+        app.configure_sets(
+            PostUpdate,
+            (
+                PixelPerfectCamCreationSet,
+                PixelPerfectCameraControlsSet::Follow,
+                PixelPerfectCameraControlsSet::Bounds,
+            )
+                .chain()
+                .before(CameraUpdateSystems),
+        );
+        layout::build(app);
         app.add_systems(Startup, (setup, configure_window_constraints));
         #[cfg(target_arch = "wasm32")]
         app.add_systems(Update, web_color::tag_canvas_color_space);
         app.add_systems(PreUpdate, reset_game_view_slot);
-        app.add_systems(
-            PostUpdate,
-            finalize_pixel_perfect_camera
-                .before(CameraUpdateSystems)
-                .in_set(PixelPerfectCamCreationSet),
-        );
         app.add_systems(
             PostUpdate,
             sync_window_cameras
@@ -189,53 +217,14 @@ impl Plugin for PixelPerfectCameraPlugin {
     }
 }
 
-/// Spawns the low-res render target, outer window camera, canvas sprite, and inner game camera.
+/// Spawns the window cameras. Each [`PixelPerfectCamera`] adds its own canvas.
 fn setup(
     mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
     mut egui_global_settings: ResMut<EguiGlobalSettings>,
     config: Res<PixelPerfectCameraConfig>,
 ) {
-    // Do not auto-bind egui to the first camera; EditorUiCamera hosts the primary context.
     egui_global_settings.auto_create_primary_context = false;
 
-    let width = config.game_width as u32;
-    let height = config.game_height as u32;
-    let canvas_size = Extent3d {
-        width,
-        height,
-        ..default()
-    };
-
-    let mut canvas = Image {
-        texture_descriptor: TextureDescriptor {
-            label: Some("game_canvas"),
-            size: canvas_size,
-            dimension: TextureDimension::D2,
-            // RGBA sRGB, not BGRA. WebGL has no BGRA sRGB format, so a BGRA target
-            // takes a different gamma path in the browser than on desktop.
-            format: TextureFormat::Rgba8UnormSrgb,
-            mip_level_count: 1,
-            sample_count: 1,
-            usage: TextureUsages::TEXTURE_BINDING
-                | TextureUsages::COPY_DST
-                | TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        },
-        ..default()
-    };
-    canvas.resize(canvas_size);
-
-    let canvas_handle = images.add(canvas);
-    commands.insert_resource(GameCanvasImage(canvas_handle.clone()));
-
-    // let inner_projection = Projection::from(OrthographicProjection {
-    //     scaling_mode: ScalingMode::Fixed {
-    //         width: config.game_width,
-    //         height: config.game_height,
-    //     },
-    //     ..OrthographicProjection::default_2d()
-    // });
     // Letterbox in projection space so we do not need a custom GPU viewport
     // (those can exceed the swap chain for a frame and DeviceLost the renderer).
     let outer_projection = Projection::from(OrthographicProjection {
@@ -292,65 +281,6 @@ fn setup(
         EditorUiCamera,
         WindowSurfaceCamera,
     ));
-
-    // The render target for the game canvas (what the inner world will draw into)
-    commands.spawn((
-        Sprite {
-            image: canvas_handle.clone(),
-            custom_size: Some(Vec2::new(config.game_width, config.game_height)),
-            ..default()
-        },
-        GameCanvas,
-        OUTER_LAYERS.clone(),
-    ));
-
-    // Inner camera: world + Bevy UI → NES-resolution canvas.
-    // commands.spawn((
-    //     Camera2d,
-    //     Camera {
-    //         order: -1,
-    //         clear_color: ClearColorConfig::Custom(Color::srgb(0.1, 0.1, 0.1)),
-    //         ..default()
-    //     },
-    //     RenderTarget::Image(canvas_handle.into()),
-    //     inner_projection,
-    //     Msaa::Off,
-    //     PixelPerfectCamera,
-    //     IsDefaultUiCamera,
-    //     GAME_LAYERS.clone(),
-    //     Transform::from_translation(Vec3::ZERO),
-    // ));
-}
-
-fn finalize_pixel_perfect_camera(
-    mut commands: Commands,
-    q: Query<Entity, Added<PixelPerfectCamera>>,
-    config: Res<PixelPerfectCameraConfig>,
-    game_canvas: Res<GameCanvasImage>,
-) {
-    for ent in q {
-        let inner_projection = Projection::from(OrthographicProjection {
-            scaling_mode: ScalingMode::Fixed {
-                width: config.game_width,
-                height: config.game_height,
-            },
-            ..OrthographicProjection::default_2d()
-        });
-
-        commands.entity(ent).insert((
-            Camera2d,
-            Camera {
-                order: -1,
-                clear_color: ClearColorConfig::Custom(Color::srgb(0.1, 0.1, 0.1)),
-                ..default()
-            },
-            RenderTarget::Image(game_canvas.0.clone().into()),
-            inner_projection,
-            Msaa::Off,
-            IsDefaultUiCamera,
-            GAME_LAYERS.clone(),
-        ));
-    }
 }
 
 /// Ensures the window cannot shrink below the configured game resolution.
@@ -420,69 +350,190 @@ fn reset_game_view_slot(mut slot: ResMut<GameViewSlot>) {
     slot.physical_rect = None;
 }
 
-/// Read and write the [`PixelPerfectCamera`] transform from a system parameter.
+/// Why a [`PixelPerfectCameraQuery`] lookup failed.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum CameraLookupError {
+    /// No [`PixelPerfectCamera`] is spawned.
+    #[error("no pixel-perfect camera is spawned")]
+    Missing,
+    /// `only` was used while more than one camera exists.
+    #[error("expected exactly one pixel-perfect camera, found {found}")]
+    NotExactlyOne {
+        /// How many cameras were spawned.
+        found: usize,
+    },
+    /// `camera` is not a [`PixelPerfectCamera`].
+    #[error("pixel-perfect camera {entity} does not exist")]
+    Unknown {
+        /// The entity that was requested.
+        entity: Entity,
+    },
+    /// The camera exists, but this frame's layout pass has not given it a cell yet.
+    #[error("pixel-perfect camera {entity} has no screen cell yet")]
+    SlotNotReady {
+        /// The camera that is still waiting for layout.
+        entity: Entity,
+    },
+}
+
+/// Read and write [`PixelPerfectCamera`] transforms.
 ///
-/// There is exactly one inner camera. This param fails the system if that
-/// camera is missing.
+/// Methods that take no camera entity use [`Self::only`] and return
+/// [`CameraLookupError::NotExactlyOne`] when several screens are spawned.
+/// Pass the camera entity to those `_of` methods instead.
 #[derive(SystemParam)]
 pub struct PixelPerfectCameraQuery<'w, 's> {
     commands: Commands<'w, 's>,
-    camera: Single<'w, 's, (Entity, &'static mut Transform), With<PixelPerfectCamera>>,
-    config: Res<'w, PixelPerfectCameraConfig>,
+    cameras: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static mut Transform,
+            &'static CameraZoom,
+            Option<&'static ScreenSlot>,
+        ),
+        With<PixelPerfectCamera>,
+    >,
+}
+
+struct CameraParts<'a> {
+    transform: &'a Transform,
+    zoom: &'a CameraZoom,
+    slot: Option<&'a ScreenSlot>,
+}
+
+struct CameraPartsMut<'a> {
+    transform: Mut<'a, Transform>,
 }
 
 #[allow(unused)]
 impl PixelPerfectCameraQuery<'_, '_> {
-    fn transform(&self) -> &Transform {
-        &self.camera.1
+    /// The only camera. Fails when there are zero or several.
+    pub fn only(&self) -> Result<Entity, CameraLookupError> {
+        let mut iter = self.cameras.iter();
+        let Some((entity, _, _, _)) = iter.next() else {
+            return Err(CameraLookupError::Missing);
+        };
+        if iter.next().is_some() {
+            let found = 2 + iter.count();
+            return Err(CameraLookupError::NotExactlyOne { found });
+        }
+        Ok(entity)
     }
 
-    fn transform_mut(&mut self) -> &mut Transform {
-        &mut self.camera.1
+    /// Camera center X, in world pixels. Requires exactly one camera.
+    pub fn get_x(&self) -> Result<f32, CameraLookupError> {
+        Ok(self.get_x_of(self.only()?)?)
     }
 
-    /// Camera center X, in world pixels.
-    pub fn get_x(&self) -> f32 {
-        self.transform().translation.x
+    /// Camera center X for `camera`, in world pixels.
+    pub fn get_x_of(&self, camera: Entity) -> Result<f32, CameraLookupError> {
+        Ok(self.get_xy_of(camera)?.x)
     }
-    /// Camera center Y, in world pixels.
-    pub fn get_y(&self) -> f32 {
-        self.transform().translation.y
+
+    /// Camera center Y, in world pixels. Requires exactly one camera.
+    pub fn get_y(&self) -> Result<f32, CameraLookupError> {
+        self.get_y_of(self.only()?)
     }
-    /// World-space center of the view, in pixels. Y-up.
-    pub fn get_xy(&self) -> Vec2 {
-        self.transform().get_2d_pos()
+
+    /// Camera center Y for `camera`, in world pixels.
+    pub fn get_y_of(&self, camera: Entity) -> Result<f32, CameraLookupError> {
+        Ok(self.get_xy_of(camera)?.y)
     }
-    /// Move the camera center to `pos`. Z is set to `0`.
+
+    /// World-space center of the only camera, in pixels. Y-up.
+    pub fn get_xy(&self) -> Result<Vec2, CameraLookupError> {
+        self.get_xy_of(self.only()?)
+    }
+
+    /// World-space center of `camera`, in pixels. Y-up.
+    pub fn get_xy_of(&self, camera: Entity) -> Result<Vec2, CameraLookupError> {
+        let camera = self.camera_ref(camera)?;
+        Ok(camera.transform.get_2d_pos())
+    }
+
+    /// Move the only camera's center to `pos`. Z is set to `0`.
     ///
     /// [`CameraBounds`] are applied later in [`PostUpdate`], so a position
     /// outside the bounds will be pulled back before the frame renders.
-    pub fn set_xy(&mut self, pos: Vec2) {
-        self.transform_mut().translation = pos.extend(0.);
-    }
-    /// Top-left corner of the current viewport in world space (Bevy Y-up).
-    #[inline]
-    pub fn viewport_top_left(&self) -> Vec2 {
-        self.get_xy() + self.config.viewport_top_left()
-    }
-    /// Place the camera so `top_left` is the top-left of the viewport (Bevy Y-up).
-    pub fn set_viewport_top_left(&mut self, top_left: Vec2) {
-        self.set_xy(top_left - self.config.viewport_top_left());
-    }
-    /// Canvas width in pixels. This is the config value, not the OS window.
-    pub fn get_view_width(&self) -> f32 {
-        self.config.game_width
-    }
-    /// Canvas height in pixels. This is the config value, not the OS window.
-    pub fn get_view_height(&self) -> f32 {
-        self.config.game_height
-    }
-    /// Half the canvas size, `(width / 2, height / 2)`.
-    pub fn viewport_dimensions_half(&self) -> Vec2 {
-        self.config.viewport_dimensions_half()
+    pub fn set_xy(&mut self, pos: Vec2) -> Result<(), CameraLookupError> {
+        self.set_xy_of(self.only()?, pos)
     }
 
-    /// Replace [`CameraBounds`] on the inner camera.
+    /// Move `camera`'s center to `pos`. Z is set to `0`.
+    ///
+    /// [`CameraBounds`] are applied later in [`PostUpdate`], so a position
+    /// outside the bounds will be pulled back before the frame renders.
+    pub fn set_xy_of(&mut self, camera: Entity, pos: Vec2) -> Result<(), CameraLookupError> {
+        let mut camera = self.camera_mut(camera)?;
+        camera.transform.translation = pos.extend(0.);
+        Ok(())
+    }
+
+    /// Top-left corner of the only camera's visible view, in world space (Y-up).
+    #[inline]
+    pub fn viewport_top_left(&self) -> Result<Vec2, CameraLookupError> {
+        self.viewport_top_left_of(self.only()?)
+    }
+
+    /// Top-left corner of `camera`'s visible view, in world space (Y-up).
+    ///
+    /// The visible size is the cell divided by [`CameraZoom`], not the base canvas.
+    pub fn viewport_top_left_of(&self, camera: Entity) -> Result<Vec2, CameraLookupError> {
+        let half = self.visible_half(camera)?;
+        Ok(self.get_xy_of(camera)? + Vec2::new(-half.x, half.y))
+    }
+
+    /// Place the only camera so `top_left` is the top-left of its view (Y-up).
+    pub fn set_viewport_top_left(&mut self, top_left: Vec2) -> Result<(), CameraLookupError> {
+        self.set_viewport_top_left_of(self.only()?, top_left)
+    }
+
+    /// Place `camera` so `top_left` is the top-left of its view (Y-up).
+    pub fn set_viewport_top_left_of(
+        &mut self,
+        camera: Entity,
+        top_left: Vec2,
+    ) -> Result<(), CameraLookupError> {
+        let half = self.visible_half(camera)?;
+        self.set_xy_of(camera, top_left - Vec2::new(-half.x, half.y))
+    }
+
+    /// Visible width of the only camera, in world pixels.
+    ///
+    /// This is the cell width divided by [`CameraZoom`], not the OS window and
+    /// not the full base canvas.
+    pub fn get_view_width(&self) -> Result<f32, CameraLookupError> {
+        self.get_view_width_of(self.only()?)
+    }
+
+    /// Visible width of `camera`, in world pixels.
+    pub fn get_view_width_of(&self, camera: Entity) -> Result<f32, CameraLookupError> {
+        Ok(self.visible_size(camera)?.x)
+    }
+
+    /// Visible height of the only camera, in world pixels.
+    pub fn get_view_height(&self) -> Result<f32, CameraLookupError> {
+        self.get_view_height_of(self.only()?)
+    }
+
+    /// Visible height of `camera`, in world pixels.
+    pub fn get_view_height_of(&self, camera: Entity) -> Result<f32, CameraLookupError> {
+        Ok(self.visible_size(camera)?.y)
+    }
+
+    /// Half the only camera's visible size, `(width / 2, height / 2)`.
+    pub fn viewport_dimensions_half(&self) -> Result<Vec2, CameraLookupError> {
+        self.viewport_dimensions_half_of(self.only()?)
+    }
+
+    /// Half of `camera`'s visible size, `(width / 2, height / 2)`.
+    pub fn viewport_dimensions_half_of(&self, camera: Entity) -> Result<Vec2, CameraLookupError> {
+        self.visible_half(camera)
+    }
+
+    /// Replace [`CameraBounds`] on the only camera.
     ///
     /// Each argument is an edge of the allowed view in world pixels, or [`None`]
     /// to leave that side open. These are viewport edges, not limits on the
@@ -490,7 +541,7 @@ impl PixelPerfectCameraQuery<'_, '_> {
     ///
     /// ### NOTE:
     /// This inserts the component again on every call. A region smaller than
-    /// the canvas on an axis pins the camera to the middle of that region.
+    /// the visible view on an axis pins the camera to the middle of that region.
     /// See [`CameraBounds`].
     pub fn set_bounds(
         &mut self,
@@ -498,12 +549,58 @@ impl PixelPerfectCameraQuery<'_, '_> {
         xmax: Option<f32>,
         ymin: Option<f32>,
         ymax: Option<f32>,
-    ) {
-        self.commands.entity(self.camera.0).insert(CameraBounds {
+    ) -> Result<(), CameraLookupError> {
+        self.set_bounds_of(self.only()?, xmin, xmax, ymin, ymax)
+    }
+
+    /// Replace [`CameraBounds`] on `camera`. See [`Self::set_bounds`].
+    pub fn set_bounds_of(
+        &mut self,
+        camera: Entity,
+        xmin: Option<f32>,
+        xmax: Option<f32>,
+        ymin: Option<f32>,
+        ymax: Option<f32>,
+    ) -> Result<(), CameraLookupError> {
+        self.camera_ref(camera)?;
+        self.commands.entity(camera).insert(CameraBounds {
             xmin,
             xmax,
             ymin,
             ymax,
         });
+        Ok(())
+    }
+
+    fn camera_ref(&self, camera: Entity) -> Result<CameraParts<'_>, CameraLookupError> {
+        let (_, transform, zoom, slot) = self
+            .cameras
+            .get(camera)
+            .map_err(|_| CameraLookupError::Unknown { entity: camera })?;
+        Ok(CameraParts {
+            transform,
+            zoom,
+            slot,
+        })
+    }
+
+    fn camera_mut(&mut self, camera: Entity) -> Result<CameraPartsMut<'_>, CameraLookupError> {
+        let (_, transform, _, _) = self
+            .cameras
+            .get_mut(camera)
+            .map_err(|_| CameraLookupError::Unknown { entity: camera })?;
+        Ok(CameraPartsMut { transform })
+    }
+
+    fn visible_size(&self, camera: Entity) -> Result<Vec2, CameraLookupError> {
+        let camera_parts = self.camera_ref(camera)?;
+        let slot = camera_parts
+            .slot
+            .ok_or(CameraLookupError::SlotNotReady { entity: camera })?;
+        Ok(slot.visible_world_size(camera_parts.zoom.0))
+    }
+
+    fn visible_half(&self, camera: Entity) -> Result<Vec2, CameraLookupError> {
+        Ok(self.visible_size(camera)? * 0.5)
     }
 }

@@ -60,11 +60,25 @@ impl BitmapFont {
 #[derive(Deserialize)]
 pub struct BitmapFontSource {
     image: String,
-    glyph_size: (u32, u32),
+    glyph_size: GlyphSize,
     columns: u32,
     rows: u32,
     first_code: u32,
     last_code: u32,
+}
+
+/// Pixel size of one glyph. `.font.ron` files still write this as `(width, height)`.
+#[derive(Deserialize)]
+#[serde(from = "(u32, u32)")]
+struct GlyphSize {
+    width: u32,
+    height: u32,
+}
+
+impl From<(u32, u32)> for GlyphSize {
+    fn from((width, height): (u32, u32)) -> Self {
+        Self { width, height }
+    }
 }
 
 #[derive(Error, Debug)]
@@ -111,7 +125,7 @@ impl AssetLoader for BitmapFontLoader {
 
         let image = load_context.load(image_path);
 
-        let glyph_size = uvec2(src.glyph_size.0, src.glyph_size.1);
+        let glyph_size = uvec2(src.glyph_size.width, src.glyph_size.height);
 
         let layout = load_context.add_labeled_asset(
             "layout".to_string(),

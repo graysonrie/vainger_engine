@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use bevy::camera::visibility::RenderLayers;
 
 /// Reads [`FadeScreen`] messages as processes fades during `Update`
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -24,47 +25,49 @@ impl Plugin for ScreenTransitionPlugin {
     }
 }
 
-/// Spawns the screen overlay entites as children of the cameras
-fn spawn_overlay_on_camera(
-    event: On<Add, PixelPerfectCamera>,
-    config: Res<PixelPerfectCameraConfig>,
-    mut commands: Commands,
-) {
+/// Spawns the screen overlay as a child of the camera.
+///
+/// The quad starts on no render layer. Layout puts it on a layer only this
+/// camera draws, and sizes it to the visible view.
+fn spawn_overlay_on_camera(event: On<Add, PixelPerfectCamera>, mut commands: Commands) {
     commands.entity(event.entity).with_children(|parent| {
         parent.spawn((
-            Sprite::from_color(Color::BLACK.with_alpha(0.0), config.viewport_dimensions()),
+            Sprite::from_color(Color::BLACK.with_alpha(0.0), Vec2::splat(1.0)),
             Transform::from_xyz(0.0, 0.0, 100.0),
             Visibility::Hidden,
             ScreenFadeOverlay,
-            GAME_LAYERS.clone(),
+            RenderLayers::none(),
         ));
     });
 }
 
-/// Requests a screen fade to happen
+/// Requests a fade on one [`PixelPerfectCamera`].
 #[derive(Message, Clone, Copy, Debug)]
 pub struct FadeScreen {
+    /// Screen whose overlay should fade.
+    pub camera: Entity,
     pub fade_type: FadeDirective,
     /// In secs
     pub duration: f32,
 }
 impl FadeScreen {
-    pub fn new(directive: FadeDirective, duration: f32) -> Self {
+    pub fn new(camera: Entity, directive: FadeDirective, duration: f32) -> Self {
         Self {
+            camera,
             fade_type: directive,
             duration,
         }
     }
-    pub fn fade_in(duration: f32) -> Self {
-        Self::new(FadeDirective::In, duration)
+    pub fn fade_in(camera: Entity, duration: f32) -> Self {
+        Self::new(camera, FadeDirective::In, duration)
     }
 
-    pub fn fade_out(duration: f32) -> Self {
-        Self::new(FadeDirective::Out, duration)
+    pub fn fade_out(camera: Entity, duration: f32) -> Self {
+        Self::new(camera, FadeDirective::Out, duration)
     }
 
-    pub fn fade_in_out(duration: f32) -> Self {
-        Self::new(FadeDirective::in_out(duration), duration)
+    pub fn fade_in_out(camera: Entity, duration: f32) -> Self {
+        Self::new(camera, FadeDirective::in_out(duration), duration)
     }
 }
 
@@ -90,46 +93,52 @@ struct DoFadeOut {
 impl FadeScreen {
     fn handle_read(
         mut reader: MessageReader<Self>,
-        overlays: Query<Entity, With<ScreenFadeOverlay>>,
+        overlays: Query<(Entity, &ChildOf), With<ScreenFadeOverlay>>,
         mut commands: Commands,
     ) {
         for message in reader.read() {
-            if overlays.is_empty() {
-                warn!("Got message to trigger screen fade, but no overlays currently exist");
-            }
-            for entity in overlays {
-                let to = match message.fade_type {
-                    FadeDirective::In => 1.,
-                    FadeDirective::Out => 0.,
-                    FadeDirective::InOut { .. } => 1.,
-                };
+            let Some(entity) = overlays
+                .iter()
+                .find(|(_, child_of)| child_of.0 == message.camera)
+                .map(|(entity, _)| entity)
+            else {
+                warn!(
+                    "Got a screen fade for {}, but that camera has no overlay",
+                    message.camera
+                );
+                continue;
+            };
+            let to = match message.fade_type {
+                FadeDirective::In => 1.,
+                FadeDirective::Out => 0.,
+                FadeDirective::InOut { .. } => 1.,
+            };
 
-                let from = match message.fade_type {
-                    FadeDirective::In => 0.,
-                    FadeDirective::Out => 1.,
-                    FadeDirective::InOut { .. } => 0.,
-                };
+            let from = match message.fade_type {
+                FadeDirective::In => 0.,
+                FadeDirective::Out => 1.,
+                FadeDirective::InOut { .. } => 0.,
+            };
 
-                let fade_type = match message.fade_type {
-                    FadeDirective::In => FadeType::In,
-                    FadeDirective::Out => FadeType::Out,
-                    FadeDirective::InOut { .. } => FadeType::In,
-                };
+            let fade_type = match message.fade_type {
+                FadeDirective::In => FadeType::In,
+                FadeDirective::Out => FadeType::Out,
+                FadeDirective::InOut { .. } => FadeType::In,
+            };
 
-                commands.entity(entity).insert(ScreenFade {
-                    alpha: 0.,
-                    from,
-                    to,
-                    elapsed: 0.,
-                    duration: message.duration,
-                    fade_type,
+            commands.entity(entity).insert(ScreenFade {
+                alpha: 0.,
+                from,
+                to,
+                elapsed: 0.,
+                duration: message.duration,
+                fade_type,
+            });
+
+            if let FadeDirective::InOut { out_duration } = message.fade_type {
+                commands.entity(entity).insert(DoFadeOut {
+                    duration: out_duration,
                 });
-
-                if let FadeDirective::InOut { out_duration } = message.fade_type {
-                    commands.entity(entity).insert(DoFadeOut {
-                        duration: out_duration,
-                    });
-                }
             }
         }
     }
@@ -161,23 +170,33 @@ pub enum FadeType {
     Out,
 }
 
-/// Note: for `FadeType::InOut`, it will broadcast one message for `FadeType::Out` and then another for
-/// `FadeType::InOut` when fully complete
+/// Sent when a fade on `camera` finishes.
+///
+/// An in-out fade sends [`FadeType::In`] when the screen is covered, then
+/// [`FadeType::Out`] when it is clear again.
 #[derive(Message, Clone, Debug)]
 pub struct ScreenFadeComplete {
+    /// Screen whose overlay finished this step.
+    pub camera: Entity,
     pub fade_type: FadeType,
 }
 
 fn handle_screen_fade(
     mut fade: Query<
-        (&mut Sprite, &mut ScreenFade, Entity, &mut Visibility),
+        (
+            &mut Sprite,
+            &mut ScreenFade,
+            Entity,
+            &ChildOf,
+            &mut Visibility,
+        ),
         With<ScreenFadeOverlay>,
     >,
     time: Res<Time>,
     mut commands: Commands,
     mut completes: MessageWriter<ScreenFadeComplete>,
 ) {
-    for (mut sprite, mut screen_fade, entity, mut vis) in &mut fade {
+    for (mut sprite, mut screen_fade, entity, child_of, mut vis) in &mut fade {
         screen_fade.elapsed = (screen_fade.elapsed + time.delta_secs()).min(screen_fade.duration);
         let t = screen_fade.elapsed / screen_fade.duration;
         screen_fade.alpha = screen_fade.from.lerp(screen_fade.to, t);
@@ -186,6 +205,7 @@ fn handle_screen_fade(
         if t >= 1. {
             commands.entity(entity).remove::<ScreenFade>();
             completes.write(ScreenFadeComplete {
+                camera: child_of.0,
                 fade_type: screen_fade.fade_type,
             });
             if screen_fade.fade_type == FadeType::Out {
@@ -199,7 +219,7 @@ fn handle_screen_fade(
 
 fn handle_in_out_fades(
     mut fades: MessageReader<ScreenFadeComplete>,
-    q: Query<(Entity, &DoFadeOut), With<ScreenFadeOverlay>>,
+    q: Query<(Entity, &ChildOf, &DoFadeOut), With<ScreenFadeOverlay>>,
     mut trigger_fade: MessageWriter<FadeScreen>,
     mut commands: Commands,
 ) {
@@ -207,12 +227,13 @@ fn handle_in_out_fades(
         if fade.fade_type != FadeType::In {
             continue;
         }
-        for (entity, fadeout) in q {
+        for (entity, child_of, fadeout) in &q {
+            if child_of.0 != fade.camera {
+                continue;
+            }
+            let duration = fadeout.duration;
             commands.entity(entity).remove::<DoFadeOut>();
-            trigger_fade.write(FadeScreen {
-                duration: fadeout.duration,
-                fade_type: FadeDirective::Out,
-            });
+            trigger_fade.write(FadeScreen::fade_out(fade.camera, duration));
         }
     }
 }
