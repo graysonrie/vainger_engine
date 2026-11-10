@@ -424,7 +424,7 @@ impl PixelPerfectCameraQuery<'_, '_> {
 
     /// Camera center X, in world pixels. Requires exactly one camera.
     pub fn get_x(&self) -> Result<f32, CameraLookupError> {
-        Ok(self.get_x_of(self.only()?)?)
+        self.get_x_of(self.only()?)
     }
 
     /// Camera center X for `camera`, in world pixels.
