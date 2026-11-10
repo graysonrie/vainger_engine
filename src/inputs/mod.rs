@@ -2,6 +2,7 @@
 
 use crate::prelude::*;
 use leafwing_input_manager::action_state::ActionState;
+pub mod nes_inputs;
 
 /// Turns analog leafwing axes into digital directions.
 pub trait ActionStateExt<A>
@@ -36,3 +37,7 @@ where
         ivec2(x, y)
     }
 }
+
+/// If present on the entity, they won't respond to user inputs
+#[derive(Component)]
+pub struct IgnoreInputs;

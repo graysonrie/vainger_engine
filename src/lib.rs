@@ -7,6 +7,7 @@
 //! [`prelude`] re-exports the pieces most games import. Collision, movement,
 //! meshes, and LDtk grid queries live in their own modules.
 
+pub mod sets;
 pub mod app;
 pub mod aseprite;
 pub mod assets;

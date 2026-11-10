@@ -13,9 +13,10 @@
 //! });
 //! ```
 
+pub mod pipeline;
 use crate::{components::Velocity2D, prelude::*};
 
-/// Slides `transform` by `velocity`, resolving X fully before Y.
+/// Slides `transform` by `velocity`, resolving X fully before Y
 ///
 /// `collision_check_fn` receives a candidate world position and the same
 /// `hitbox`, and returns `true` when that placement overlaps something solid.

@@ -5,6 +5,7 @@ use crate::{
     aseprite::{
         AsepriteExtPlugin, animation::AsepriteAnimationPlugin, hitbox::AsepriteHitboxPlugin,
     },
+    collision::pipeline::Collision2DPlugin,
     ldtk::int_grid_cells::IntGridCellsPlugin,
     movement::MovementPlugin,
     prelude::*,
@@ -31,15 +32,15 @@ pub trait AppExt {
     /// The present mode is [`bevy::window::PresentMode::Immediate`]. Vsync is
     /// off; `bevy_framepace` is what holds the frame rate at 60. Dev builds
     /// open the window unfocused so a reload does not steal editor focus.
-    fn setup_for_default_2d_pixel_game(self, game_res: UVec2) -> Self;
+    fn setup_for_default_2d_pixel_game(self, game_res: UVec2, window_scale: u32) -> Self;
 }
 
 impl AppExt for App {
-    fn setup_for_default_2d_pixel_game(mut self, game_res: UVec2) -> Self {
+    fn setup_for_default_2d_pixel_game(mut self, game_res: UVec2, window_scale: u32) -> Self {
         // Dev builds stay unfocused so cargo-watch reloads don't steal editor focus (macOS).
         let window_plugin = WindowPlugin::default()
             .at_position(IVec2::new(2, 2))
-            .with_resolution_of(game_res, 1)
+            .with_resolution_of(game_res, window_scale)
             .with_present_mode(bevy::window::PresentMode::Immediate)
             .with_focused(!cfg!(debug_assertions));
 
