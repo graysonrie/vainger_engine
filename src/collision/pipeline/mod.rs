@@ -1,15 +1,18 @@
 use crate::{
     collision::{
         CollisionContacts, get_collision_contacts, move_and_collide,
-        pipeline::jump::{CollisionJumpPlugin, Gravity},
+        pipeline::{
+            collision_check::LdtkCollisionCheck,
+            jump::{CollisionJumpPlugin, Gravity},
+        },
     },
     components::Velocity2D,
     prelude::*,
     sets::InputsSet,
 };
-use bevy::ecs::system::StaticSystemParam;
-use std::marker::PhantomData;
 
+pub mod bundles;
+pub mod collision_check;
 pub mod jump;
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -18,32 +21,17 @@ pub enum Collision2DSet {
     MoveAndCollide,
 }
 
-pub struct Collision2DPlugin<C>
-where
-    C: SystemParam + Send + Sync + 'static,
-    for<'w, 's> <C as SystemParam>::Item<'w, 's>: CollisionCheck,
-{
-    _phantom: PhantomData<C>,
+/// Uses LDtk for collision checking
+pub struct Collision2DPlugin {
     gravity: f32,
 }
-impl<C> Default for Collision2DPlugin<C>
-where
-    C: SystemParam + Send + Sync + 'static,
-    for<'w, 's> <C as SystemParam>::Item<'w, 's>: CollisionCheck,
-{
+impl Default for Collision2DPlugin {
     fn default() -> Self {
-        Self {
-            _phantom: PhantomData,
-            gravity: -0.45,
-        }
+        Self { gravity: -0.45 }
     }
 }
 
-impl<C> Plugin for Collision2DPlugin<C>
-where
-    C: SystemParam + Send + Sync + 'static,
-    for<'w, 's> <C as SystemParam>::Item<'w, 's>: CollisionCheck,
-{
+impl Plugin for Collision2DPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(CollisionJumpPlugin)
             .insert_resource(Collision2DGravityForce(self.gravity))
@@ -53,8 +41,8 @@ where
                     apply_platformer_velocity_from_intent,
                     apply_friction,
                     apply_speed_clamp,
-                    handle_move_and_collide::<C>,
-                    update_contacts::<C>,
+                    handle_move_and_collide,
+                    update_contacts,
                 )
                     .in_set(Collision2DSet::MoveAndCollide),
             )
@@ -78,7 +66,7 @@ impl Default for Collision2DGravityForce {
 
 /// Marker component that indicates this entity wants to participate in the
 /// 2D AABB collision pipeline
-#[derive(Component)]
+#[derive(Component, Default)]
 pub struct CollisionActor;
 
 /// The character will be affected by friction
@@ -100,14 +88,10 @@ pub trait CollisionCheck {
     }
 }
 
-fn handle_move_and_collide<C>(
+fn handle_move_and_collide(
     mut q: Query<(&mut Transform, &Hitbox, &mut Velocity2D), With<CollisionActor>>,
-    collision: StaticSystemParam<C>,
-) where
-    C: SystemParam + 'static,
-    for<'w, 's> <C as SystemParam>::Item<'w, 's>: CollisionCheck,
-{
-    let collision = collision.into_inner();
+    collision: LdtkCollisionCheck,
+) {
     for (mut transform, hitbox, mut velocity_2d) in &mut q {
         move_and_collide(&mut transform, hitbox, &mut velocity_2d, |pos, hitbox| {
             collision.is_colliding(pos, hitbox)
@@ -140,14 +124,10 @@ fn apply_speed_clamp(mut q: Query<(&mut Velocity2D, &SpeedClamp), With<Collision
     }
 }
 
-fn update_contacts<C>(
+fn update_contacts(
     mut q: Query<(&mut Transform, &Hitbox, &mut CollisionContacts)>,
-    collision: StaticSystemParam<C>,
-) where
-    C: SystemParam + 'static,
-    for<'w, 's> <C as SystemParam>::Item<'w, 's>: CollisionCheck,
-{
-    let collision = collision.into_inner();
+    collision: LdtkCollisionCheck,
+) {
     for (transform, hitbox, mut contacts) in &mut q {
         *contacts = get_collision_contacts(transform.get_2d_pos(), hitbox, |pos, hitbox| {
             collision.is_colliding(pos, hitbox)
@@ -157,6 +137,11 @@ fn update_contacts<C>(
 
 #[derive(Component, Deref, DerefMut)]
 pub struct MoveSpeed(pub f32);
+impl Default for MoveSpeed {
+    fn default() -> Self {
+        Self(1.)
+    }
+}
 
 /// Should represent the direction the character was trying to move in their inputs
 #[derive(Component, Default, Deref, DerefMut)]
