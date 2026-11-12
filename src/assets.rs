@@ -9,19 +9,7 @@ use bevy::{
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 
-/// Registers a loader that reads `.aseprite` and `.ase` files as flat [`Image`]s.
-///
-/// LDtk tilesets ask the asset server for an [`Image`]. `bevy_aseprite_ultra`
-/// only registers an `Aseprite` loader, so those tileset loads fail until this
-/// plugin is added.
-///
-/// ### NOTE:
-/// [`crate::app::AppExt::setup_for_default_2d_pixel_game`] does not add this.
-/// Add it yourself when a tileset path ends in `.aseprite` or `.ase`.
-///
-/// ### NOTE:
-/// Only frame 0 of the visible layers is rendered, with nearest sampling.
-/// Tileset animation is not played. A file with no frames fails the load.
+/// Implements an Asset Loader for loading in Aseprite files as images, which is what LDtk maps use.
 pub struct AssetHelpersPlugin;
 
 impl Plugin for AssetHelpersPlugin {

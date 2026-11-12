@@ -1,20 +1,5 @@
-//! Moves an entity through world-space waypoints.
-//!
-//! Spawn [`Glide`] on the entity you want to move. The system writes
-//! `translation.x` and `translation.y` every frame and leaves `z` alone.
-//! [`super::MovementPlugin`] installs it.
-//!
-//! ### NOTE:
-//! While this component is present, that system owns X and Y. It keeps
-//! overwriting them even after [`GlideMode::Once`] has reached the last point.
-//! Remove the component to take the transform back.
-
 use super::*;
 
-/// Ticks every [`Glide`] in [`super::MovementSet`] during [`Update`].
-///
-/// Installed by [`super::MovementPlugin`]. Adding this plugin yourself as well
-/// runs the tick twice per frame.
 pub struct MovementGlidePlugin;
 
 impl Plugin for MovementGlidePlugin {
@@ -23,41 +8,17 @@ impl Plugin for MovementGlidePlugin {
     }
 }
 
-/// How a [`Glide`] advances after the last waypoint.
 #[derive(Clone, Copy, Default)]
 pub enum GlideMode {
-    /// Travel to the last point and stay there. X and Y are still written every frame.
     Once,
-    /// After the last point, travel back to the first. The first point's
-    /// `duration` and `ease` are used for that wrapping segment.
     #[default]
     Loop,
-    /// Reverse direction at either end. The destination point's `duration`
-    /// and `ease` apply on the way back too, including the first point.
     PingPong,
 }
 
-/// Tweens [`Transform`] through [`points`](Self::points).
-///
-/// [`Glide::new`] starts in [`GlideMode::Loop`]. Chain [`Glide::once`] or
-/// [`Glide::pingpong`] to change that. The entity needs a [`Transform`]; this
-/// component does not insert one.
-///
-/// ### NOTE:
-/// Fewer than two points does nothing. The entity stays where it is.
-///
-/// ### NOTE:
-/// `duration` and `ease` live on the point being traveled **to**, not the one
-/// being left. They are a travel time in seconds, not a speed, and they ignore
-/// the distance between the points. Two points 10 pixels apart and two points
-/// 200 pixels apart with `duration` 1 both take one second. The first point's
-/// `duration` and `ease` are unused until a loop or ping-pong segment ends on
-/// that point.
 #[derive(Component, Default)]
 pub struct Glide {
-    /// Waypoints in order. The entity starts at index 0 and moves toward the next one.
     pub points: Vec<GlidePoint>,
-    /// What happens at the ends. Default from [`Glide::new`] is [`GlideMode::Loop`].
     pub mode: GlideMode,
 
     current_idx: usize,
@@ -67,10 +28,7 @@ pub struct Glide {
 }
 #[allow(unused)]
 impl Glide {
-    /// Looping glide through `points`. Chain [`Self::once`] or [`Self::pingpong`] to change the mode.
-    ///
-    /// ### NOTE:
-    /// Pass at least two points. With fewer, the system leaves the transform where it is.
+    /// Constructs a new looping glide
     pub fn new(points: impl IntoIterator<Item = GlidePoint>) -> Self {
         Self {
             points: points.into_iter().collect(),
@@ -94,21 +52,16 @@ impl Glide {
     }
 }
 
-/// One waypoint. See [`Glide`] for which point's `duration` and `ease` are read.
 #[derive(Clone, Debug)]
 pub struct GlidePoint {
-    /// World position of this waypoint. Z is not stored; the entity's Z stays put.
     pub position: Vec2,
-    /// Seconds to spend traveling to this point. `0` completes the segment on the same frame.
-    ///
-    /// This is not scaled by distance. See [`Glide`].
+    /// How long it takes to travel to this point
     pub duration: f32,
-    /// Easing for the travel to this point. `None` is linear.
+    /// How the interpolation behaves while traveling to this point
     pub ease: Option<EaseFunction>,
 }
 #[allow(unused)]
 impl GlidePoint {
-    /// Waypoint at `position`. Duration is 1 second and easing is linear.
     pub fn new(position: Vec2) -> Self {
         Self {
             position,
@@ -117,18 +70,15 @@ impl GlidePoint {
         }
     }
 
-    /// Seconds to spend traveling to this point.
+    /// Marks how many seconds it will take to reach this point.
     ///
-    /// ### NOTE:
-    /// This does not account for the distance from the previous point.
-    /// Points that are 100 units apart and points that are 200 units apart
-    /// both take `duration` seconds. It is a time, not a speed.
+    /// Note that this does not account for the distance between the previous and next point.
+    /// For example two points that are 100 units apart and two points that are 200 units apart will both take 1 second to reach
     pub fn duration(mut self, duration: f32) -> Self {
         self.duration = duration;
         self
     }
 
-    /// Easing curve for the travel to this point. Without this call the travel is linear.
     pub fn ease(mut self, ease: EaseFunction) -> Self {
         self.ease = Some(ease);
         self

@@ -1,10 +1,3 @@
-//! Aseprite queries, hitboxes from opaque pixels, and animation-finished events.
-//!
-//! Playback itself comes from `bevy_aseprite_ultra` ([`AseAnimation`],
-//! [`Animation`]). [`animation`] picks which tag plays.
-//! [`crate::app::AppExt::setup_for_default_2d_pixel_game`] adds the animation
-//! and hitbox plugins. It does not add [`AsepriteExtPlugin`].
-
 use std::time::Duration;
 
 use crate::{aseprite::types::TileSprite, prelude::*};
@@ -20,22 +13,11 @@ pub mod util;
 /// full-canvas sprite anchor that puts this same point on the entity transform.
 #[derive(Clone, Debug)]
 pub struct FrameHitbox {
-    /// Box around the opaque pixels. Its anchor is [`Anchor::CENTER`], so the
-    /// box center is the origin of this hitbox, not the canvas center.
     pub hitbox: Hitbox,
-    /// Sprite [`Anchor`] that puts the hitbox center on the entity transform.
-    ///
-    /// Assign this to the sprite. [`hitbox::AsepriteHitbox`] does that when it
-    /// inserts the component. Leaving the sprite at [`Anchor::CENTER`] draws
-    /// the canvas center on the transform instead, and the hitbox will not
-    /// line up with the pixels.
     pub sprite_anchor: Anchor,
 }
 
-/// Read-only lookup over loaded [`Aseprite`] assets, their atlases, and images.
-///
-/// Use it as a system parameter. Methods return [`None`] when the asset is
-/// still loading or the tag or slice name is wrong; they do not retry next frame.
+/// Provides useful info about Aseprite assets. Does not mutate anything.
 #[derive(SystemParam)]
 pub struct AseInfo<'w> {
     aseprites: Res<'w, Assets<Aseprite>>,
@@ -88,8 +70,7 @@ impl AseInfo<'_> {
 
     /// Returns the UV coords of the slice on its texture atlas
     ///
-    /// Will return `None` if the slice does not exist, the atlas is missing,
-    /// or the image has a zero size.
+    /// Will return `None` if the slice does not exis
     pub fn tile_sprite_for_slice(
         &self,
         handle: &Handle<Aseprite>,
@@ -137,15 +118,7 @@ impl AseInfo<'_> {
         frame_hitbox(atlas_rect.size(), frame_bounds)
     }
 
-    /// Rewinds `state` to the first frame of `tag` and clears its elapsed time.
-    ///
-    /// `ase` is only read, for its [`AseAnimation::aseprite`] handle. This does
-    /// not change which tag `ase` is playing. Set that yourself (or use
-    /// [`animation::AnimationResolver`]) before calling this, or the playhead
-    /// and the tag will disagree until the next animation tick.
-    ///
-    /// Returns an error if the [`Aseprite`] asset is not loaded yet, or if
-    /// `tag` is not in the file.
+    /// Forces the animation playhead back to the start and renders the frame
     pub fn reset_anim(
         &self,
         ase: &mut AseAnimation,
@@ -284,19 +257,6 @@ mod tests {
     }
 }
 
-/// Forwards `bevy_aseprite_ultra`'s finished-animation message as [`AnimationComplete`].
-///
-/// ### NOTE:
-/// [`crate::app::AppExt::setup_for_default_2d_pixel_game`] does not add this.
-/// Without it, nothing is listening and [`AnimationComplete`] never fires.
-///
-/// ### NOTE:
-/// Only [`AnimationEvents::Finished`] is forwarded. Looping playback emits
-/// [`AnimationEvents::LoopCycleFinished`] instead, so a tag started with
-/// [`Animation::play_loop`] (or [`animation::AnimationResolver`], which uses
-/// that) will not complete. [`util::AnimationExt::play_once`] is what emits
-/// `Finished`. That helper passes `Count(1)`, and the upstream player plays
-/// a `Count(1)` tag twice before it fires. See [`util::AnimationExt::play_once`].
 pub struct AsepriteExtPlugin;
 
 impl Plugin for AsepriteExtPlugin {
@@ -305,10 +265,6 @@ impl Plugin for AsepriteExtPlugin {
     }
 }
 
-/// Triggered on the animated entity when its non-looping animation finishes.
-///
-/// Observe it with `On<AnimationComplete>`. The wrapped entity is the one that
-/// was playing the animation. See [`AsepriteExtPlugin`] for when this is sent.
 #[derive(EntityEvent)]
 pub struct AnimationComplete(Entity);
 

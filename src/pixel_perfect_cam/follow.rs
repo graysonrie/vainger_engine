@@ -1,33 +1,19 @@
-//! Smooth follow for [`PixelPerfectCamera`](super::PixelPerfectCamera).
-
 use crate::prelude::*;
 
-/// Makes one [`PixelPerfectCamera`] chase this entity's `x` and `y`.
-///
-/// The camera keeps its own Z. Put this on a gameplay entity, not on the camera.
-/// A component on the camera itself is ignored by the follow query.
-///
-/// [`Self::camera`] picks which screen follows. [`None`] follows the only camera,
-/// which is the one-screen case ([`CameraPanner2dBundle`] uses that). With two or
-/// more cameras, [`None`] does not move any of them.
-///
-/// ### NOTE:
-/// Two followers that resolve to the same camera: one is applied and the extra
-/// logs a warning every frame.
+/// Marker component that tells the pixel perfect camera to follow this entity
 #[derive(Component)]
 pub struct PixelPerfectCameraFollow {
-    /// A value like `4.` is a good amount.
+    /// A value like `4.` is a good amount
     pub decay_rate: f32,
     /// Screen that should chase this entity. [`None`] means the only camera.
     pub camera: Option<Entity>,
 }
-
 #[allow(unused)]
 impl PixelPerfectCameraFollow {
-    /// Follow the only camera.
+    /// The larger the decay rate, the faster the camera will
+    /// track the target.
     ///
-    /// The larger the decay rate, the faster the camera will track the target.
-    /// Default is 4.0.
+    /// Default is 4.0
     pub fn new(decay_rate: f32) -> Self {
         Self {
             decay_rate,
@@ -45,16 +31,12 @@ impl PixelPerfectCameraFollow {
         }
     }
 }
-
 impl Default for PixelPerfectCameraFollow {
     fn default() -> Self {
         Self::new(4.)
     }
 }
 
-/// Runs the follow system in [`PixelPerfectCameraControlsSet::Follow`].
-///
-/// Added by [`PixelPerfectCameraPlugin`]. Adding it again registers the system twice.
 pub struct PixelPerfectCameraFollowPlugin;
 
 impl Plugin for PixelPerfectCameraFollowPlugin {

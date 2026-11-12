@@ -1,27 +1,13 @@
-//! A few shared meshes and color materials, filled in at startup.
-
 use crate::prelude::*;
 
-/// Handles created by [`PrimitiveAssetsPlugin`].
-///
-/// ### NOTE:
-/// A Startup system fills these in. During other Startup systems they can
-/// still be the default empty handles, and an empty handle does not draw.
-/// Read them from [`Update`] onward.
 #[allow(unused)]
 #[derive(Resource, Default)]
 pub struct PrimitiveAssets {
-    /// A 32×32 rectangle mesh, in world pixels.
     pub mesh_rect_32_32: Handle<Mesh>,
-    /// Unlit material, linear RGB `(1.0, 0.5, 0.5)`.
     pub material_orange: Handle<ColorMaterial>,
-    /// Unlit material, linear RGB `(0.0, 1.0, 0.5)`.
     pub material_green: Handle<ColorMaterial>,
 }
 
-/// Spawns [`PrimitiveAssets`] on startup.
-///
-/// Already added by [`crate::app::AppExt::setup_for_default_2d_pixel_game`].
 pub struct PrimitiveAssetsPlugin;
 
 impl Plugin for PrimitiveAssetsPlugin {

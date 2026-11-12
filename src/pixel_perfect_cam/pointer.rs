@@ -1,13 +1,9 @@
 use crate::prelude::*;
 use bevy::{ecs::system::SystemParam, window::PrimaryWindow};
 
-/// Can get the cursor world position, respecting the pixel perfect cameras.
+/// Can get the cursor world position, respecting the pixel perfect camera
 ///
-/// The cursor is tested against each screen's canvas. The hit uses that
-/// camera's position and [`CameraZoom`]. A letterbox bar or an empty grid cell
-/// is not a hit.
-///
-/// Works for both desktop and mobile targets.
+/// Works for both desktop and mobile targets
 #[derive(SystemParam)]
 pub struct GamePointer<'w, 's> {
     window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
@@ -47,18 +43,7 @@ impl GamePointer<'_, '_> {
         self.touches.first_pressed_position()
     }
 
-    /// Cursor or finger position in world pixels (Y-up), on the screen under the pointer.
-    ///
-    /// [`None`] when the pointer is outside the OS window, over the letterbox,
-    /// or over an empty grid cell. On Windows, dragging with the left button
-    /// held captures the mouse; once the cursor leaves the client area this
-    /// returns [`None`] even though the button is still down.
-    ///
-    /// A point on the shared edge of two cells belongs to the earlier screen
-    /// (the one higher in the grid, then the one further left).
-    ///
-    /// ### NOTE:
-    /// [`Self::is_inside_window`] does not mean "inside a game view".
+    /// Gets the position of the finger or mouse cursor in the world
     pub fn position(&self) -> Option<Vec2> {
         let cursor = self.screen_position()?;
         let (cam, transform) = *self.outer;
@@ -98,18 +83,10 @@ impl GamePointer<'_, '_> {
         self.screen_position().is_some()
     }
 
-    /// Left mouse button or a touch went down this frame.
-    ///
-    /// Right and middle buttons are ignored. A touch counts on any finger.
     pub fn just_pressed(&self) -> bool {
         self.mouse.just_pressed(MouseButton::Left) || self.touches.any_just_pressed()
     }
 
-    /// Left mouse button is held, or at least one finger is on the screen.
-    ///
-    /// This is not the same as "the pointer is over the game canvas". A held
-    /// button still reports pressed after the cursor has left the window.
-    /// Use [`Self::is_inside_window`] for that.
     pub fn pressed(&self) -> bool {
         self.mouse.pressed(MouseButton::Left)
             || self.touches.any_just_pressed()

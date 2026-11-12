@@ -10,7 +10,7 @@ use asset::*;
 ///
 /// ```ignore
 /// commands.spawn((
-///     BitmapText::new("SCORE 0000", font_handle)
+///     BitmapText::new("SCORE 0000")
 ///         .with_color(Color::WHITE)
 ///         .with_max_width(144),
 ///     Node {
@@ -22,20 +22,8 @@ use asset::*;
 /// ));
 /// ```
 ///
-/// Icon glyphs live in slots `128..=252` on the UFO-style sheet. Insert them
-/// with `code as char` (GameMaker `chr(n)`).
-///
-/// ### NOTE:
-/// Glyphs are built only when this component changes (including the frame it
-/// is inserted). If the [`BitmapFont`] asset is not loaded on that frame, the
-/// system logs "No font found!" and does not try again when the asset arrives.
-/// Spawn the text after the font has loaded, or change a field (even rewriting
-/// the same `text`) once it has.
-///
-/// ### NOTE:
-/// This is Bevy UI, and the inner pixel-perfect camera is the default UI
-/// camera. Positions are in canvas pixels, not window pixels. A [`Node`]
-/// without a position sits at the top-left of the canvas.
+/// Icon glyphs live in slots `128..=252`. Insert them with `code as char`
+/// (GameMaker `chr(n)`).
 #[derive(Component, Clone, Debug)]
 #[require(Node)]
 pub struct BitmapText {
@@ -50,10 +38,6 @@ pub struct BitmapText {
 }
 
 impl BitmapText {
-    /// Text drawn with `font`.
-    ///
-    /// `text` may contain `\n`. `\t` becomes two spaces. Wrapping is off until
-    /// [`Self::with_max_width`]. See the struct docs for the font-loading pitfall.
     pub fn new(text: impl Into<String>, font: Handle<BitmapFont>) -> Self {
         Self {
             text: text.into(),
@@ -64,16 +48,12 @@ impl BitmapText {
         }
     }
 
-    /// Tint applied to every glyph. The default is white, which leaves the atlas colors alone.
     #[must_use]
     pub fn with_color(mut self, color: Color) -> Self {
         self.color = color;
         self
     }
 
-    /// Integer multiple of the font's glyph size. Values below 1 are stored as 1.
-    ///
-    /// This scales the node size, not the texture filter. Glyphs stay crisp.
     #[must_use]
     pub fn with_scale(mut self, scale: u32) -> Self {
         self.scale = scale.max(1);

@@ -1,8 +1,3 @@
-//! A copy of one LDtk IntGrid, kept on the world entity for collision checks.
-//!
-//! [`crate::app::AppExt::setup_for_default_2d_pixel_game`] installs the system
-//! that fills [`IntGridCells`] when a level spawns.
-
 use crate::prelude::*;
 
 pub(crate) struct IntGridCellsPlugin;
@@ -13,58 +8,21 @@ impl Plugin for IntGridCellsPlugin {
     }
 }
 
-/// Copy of one LDtk IntGrid layer from the level that most recently spawned.
-///
-/// Put this on the same entity as [`LdtkWorldBundle`]. [`Self::new`] names the
-/// layer. A system installed by
-/// [`crate::app::AppExt::setup_for_default_2d_pixel_game`] replaces the grid
-/// when a level spawns.
-///
-/// Cell `(x, y)` is the bottom-left cell, matching `bevy_ecs_ldtk` grid coords.
-/// Index the array as `cells[(y, x)]` (row, then column). `0` is empty. Any
-/// other stored value is that cell's IntGrid id.
-///
-/// Pair it with [`crate::collision::move_and_collide`] by passing
-/// [`Self::overlaps_hitbox`] as the solid test.
-///
-/// ### NOTE:
-/// [`Self::overlaps_hitbox`] and [`Self::is_occupied`] measure world pixels
-/// from the level's bottom-left. The level's world offset is not subtracted.
-/// That corner has to sit at the world origin, or you pass positions relative
-/// to it.
-///
-/// ### NOTE:
-/// The level must embed its layer instances in the project. External `.ldtkl`
-/// files have no layer data, the fill fails, and this component stays at
-/// whatever it already held (empty, if you just spawned [`Self::new`]).
-///
-/// ### NOTE:
-/// IntGrid values have to fit in a `u8` (`0..=255`). A larger value fails the
-/// fill and leaves the previous grid in place. A wrong [`Self::layer_name`]
-/// does the same, and logs a warning.
-///
-/// ### NOTE:
-/// Every [`IntGridCells`] in the world is rewritten from each spawned level.
-/// The last spawn wins. Out-of-range positions count as empty: the void
-/// outside the grid does not collide.
+/// Reflects the IntGrid of the currently loaded level for the LDtk world
 #[derive(Component)]
 pub struct IntGridCells {
-    /// Grid width in cells.
-    pub width: i32,
-    /// Grid height in cells.
-    pub height: i32,
-    /// Width and height of one cell, in pixels.
-    pub cell_size: i32,
-    /// Cell values, indexed `(row, column)` = `(y, x)`. `0` is empty.
+    pub width: i32,     // in cells
+    pub height: i32,    // in cells
+    pub cell_size: i32, // in pixels
     pub cells: Array2D<u8>,
-    /// LDtk layer identifier to copy. This is the name you set in LDtk, not the layer type.
     pub layer_name: &'static str,
 }
 
+/// Put this on the same entity containing the [`LdtkWorldBundle`]
+///
+/// Its IntGrid data will automatically get populated into here. Can be useful for
+/// collision checking for example
 impl IntGridCells {
-    /// Empty grid that will be filled from the IntGrid layer named `layer_name`.
-    ///
-    /// `layer_name` is compared to the layer's identifier string in the project.
     pub fn new(layer_name: &'static str) -> Self {
         Self {
             width: 0,
@@ -77,16 +35,6 @@ impl IntGridCells {
 }
 
 impl IntGridCells {
-    /// `true` when any non-zero cell overlaps `hitbox` placed so its anchor is at `world_pos`.
-    ///
-    /// `world_pos` is the same anchor position [`Hitbox::min_max_positions_in_world`]
-    /// expects. A `cell_size` of `0` or less returns `false`.
-    ///
-    /// ### NOTE:
-    /// Only the value matters here: every non-zero id is solid. Read [`Self::cells`]
-    /// yourself when different ids should collide differently. Cells the box
-    /// merely touches on the outside of an edge can still count; the test
-    /// nudges the bounds by a thousandth of a pixel before choosing cells.
     pub fn overlaps_hitbox(&self, hitbox: &Hitbox, world_pos: Vec2) -> bool {
         if self.cell_size <= 0 {
             return false;
@@ -115,9 +63,6 @@ impl IntGridCells {
         false
     }
 
-    /// `true` when the cell under the world point `world_pos` is non-zero.
-    ///
-    /// Points outside the grid return `false`. This tests a single point, not a hitbox.
     pub fn is_occupied(&self, world_pos: Vec2) -> bool {
         let Some(cell) = self.cell_at(world_pos) else {
             return false;
@@ -217,6 +162,7 @@ impl IntGridCells {
             layer_name: collision_layer_name,
         })
     }
+
 }
 
 /// Copies the spawned level's Collision IntGrid onto the drive world's [`IntGridCells`].

@@ -1,21 +1,15 @@
 use crate::prelude::*;
 
-/// Immediate-mode gizmo drawing in world pixels (Y-up).
-///
-/// Use it as a system parameter. Gizmos last one frame, so the system that
-/// draws has to run every frame you want the shape visible.
+/// Wraps gizmos so you can draw
 #[derive(SystemParam)]
 pub struct DebugDraw<'w, 's> {
     gizmos: Gizmos<'w, 's>,
 }
 
 impl DebugDraw<'_, '_> {
-    /// White outline of `rect` in world pixels.
-    ///
-    /// `rect.min` is the bottom-left and `rect.max` is the top-right. The stroke
-    /// is a gizmo line, not a sprite, and it is gone next frame unless you draw
-    /// it again. Call this from a system that runs while the game is visible,
-    /// typically [`Update`].
+    /// Spawns a 1px rectangle with a white border.
+    /// This is in immediate-mode, so you must have a system
+    /// running in `Update` to draw this each frame
     pub fn draw_outline_rect(&mut self, rect: &Rect) {
         let min = rect.min;
         let max = rect.max;

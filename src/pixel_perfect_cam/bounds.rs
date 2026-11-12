@@ -1,13 +1,5 @@
-//! Keeps each pixel-perfect camera inside its own optional world-space edges.
-
 use crate::prelude::*;
 
-/// Clamps each [`PixelPerfectCamera`] that has [`CameraBounds`] in
-/// [`PixelPerfectCameraControlsSet::Bounds`] during [`PostUpdate`].
-///
-/// Added by [`PixelPerfectCameraPlugin`]. A camera with no [`CameraBounds`] is
-/// left where it is. The margin is that camera's visible view: its cell size
-/// divided by [`CameraZoom`].
 pub struct CameraBoundsPlugin;
 
 impl Plugin for CameraBoundsPlugin {
@@ -35,18 +27,6 @@ fn clamp_camera_bounds(
     }
 }
 
-/// World-space limits for the edges of one pixel-perfect camera's view.
-///
-/// Insert this on the [`PixelPerfectCamera`] entity, or call
-/// [`PixelPerfectCameraQuery::set_bounds`]. Each field is how far that edge of
-/// the view may go. [`None`] leaves that side open.
-///
-/// ### NOTE:
-/// These are edges of the visible area, not limits on the camera center. The
-/// center stays half the visible view away from a finite edge. The visible view
-/// is the camera's cell divided by [`CameraZoom`]. If the allowed span on an
-/// axis is smaller than that view, the camera is pinned to the midpoint of
-/// that span instead of trying to satisfy both edges.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct CameraBounds {
     /// Left edge of the allowed viewport. `None` = unbounded.
@@ -97,10 +77,6 @@ impl CameraBounds {
     }
 }
 
-/// Reads [`CameraBounds`] from one [`PixelPerfectCamera`].
-///
-/// [`Self::as_approximate_rect`] turns open edges into `f32::MIN` / `f32::MAX`,
-/// which will overflow a gizmo. Use [`Self::as_debug_rect`] for drawing.
 #[derive(SystemParam)]
 pub struct CameraBoundsInfo<'w, 's> {
     bounds: Query<'w, 's, &'static CameraBounds, With<PixelPerfectCamera>>,
@@ -126,8 +102,7 @@ impl CameraBoundsInfo<'_, '_> {
         }
         Ok(bounds)
     }
-
-    /// Will use `f32::MIN` or `f32::MAX` for unbounded points.
+    /// Will use `f32::MIN` or `f32::MAX` for unbounded points
     pub fn as_approximate_rect(&self, camera: Entity) -> Result<Rect, CameraLookupError> {
         let bounds = *self.of(camera)?;
         Ok(Rect::new(
