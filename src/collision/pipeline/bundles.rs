@@ -9,7 +9,6 @@ pub struct PlatformerPlayer;
 pub struct PlatformerActorBundle {
     actor: CollisionActor,
     friction: Friction,
-    gravity: Gravity,
     velocity: Velocity2D,
     contacts: CollisionContacts,
     speed: MoveSpeed,

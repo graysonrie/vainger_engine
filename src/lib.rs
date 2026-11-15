@@ -15,6 +15,7 @@ pub mod movement;
 pub mod parallax_bg;
 pub mod pixel_perfect_cam;
 pub mod prelude;
+pub mod preludes;
 mod resources;
 pub mod ui;
 mod util;
