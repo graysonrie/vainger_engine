@@ -5,7 +5,6 @@ use crate::{
     aseprite::{
         AsepriteExtPlugin, animation::AsepriteAnimationPlugin, hitbox::AsepriteHitboxPlugin,
     },
-    collision::pipeline::Collision2DPlugin,
     ldtk::int_grid_cells::IntGridCellsPlugin,
     movement::MovementPlugin,
     prelude::*,

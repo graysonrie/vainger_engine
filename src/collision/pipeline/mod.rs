@@ -2,7 +2,7 @@ use crate::{
     collision::{
         CollisionContacts, get_collision_contacts, move_and_collide,
         pipeline::{
-            collision_check::LdtkCollisionCheck,
+            collision_check::SolidWorld,
             jump::{CollisionJumpPlugin, Gravity},
         },
     },
@@ -13,27 +13,59 @@ use crate::{
 
 pub mod bundles;
 pub mod collision_check;
+pub mod collision_handlers;
 pub mod jump;
+
+pub use collision_handlers::ldtk::LdtkSolidWorldPlugin;
+
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FullCollision2DSet;
+
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SolidWorldSyncSet;
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Collision2DSet {
     Jump,
-    MoveAndCollide,
+    Move,
+    Collide,
 }
 
-/// Uses LDtk for collision checking
+#[derive(Default, Clone, PartialEq)]
+pub enum SolidWorldType {
+    Ldtk,
+    #[default]
+    /// You must manually sync to the solid world
+    Custom,
+}
+
+#[derive(Default)]
+/// 2D AABB platformer collision pipeline.
+///
+/// Inserts an empty [`SolidWorld`]. Add a map backend plugin (e.g.
+/// [`LdtkSolidWorldPlugin`]) so that world gets filled from your level data.
 pub struct Collision2DPlugin {
     gravity: f32,
+    solid_world_type: SolidWorldType,
 }
-impl Default for Collision2DPlugin {
-    fn default() -> Self {
-        Self { gravity: -0.45 }
+
+impl Collision2DPlugin {
+    /// Should be a negative number. `-0.45` seems to work well
+    pub fn with_gravity(mut self, gravity: f32) -> Self {
+        self.gravity = gravity;
+        self
+    }
+
+    pub fn with_solid_world_type(mut self, solid_world_type: SolidWorldType) -> Self {
+        self.solid_world_type = solid_world_type;
+        self
     }
 }
 
 impl Plugin for Collision2DPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(CollisionJumpPlugin)
+            .init_resource::<SolidWorld>()
             .insert_resource(Collision2DGravityForce(self.gravity))
             .add_systems(
                 Update,
@@ -41,17 +73,29 @@ impl Plugin for Collision2DPlugin {
                     apply_platformer_velocity_from_intent,
                     apply_friction,
                     apply_speed_clamp,
-                    handle_move_and_collide,
-                    update_contacts,
+                    snap_to_ground,
                 )
-                    .in_set(Collision2DSet::MoveAndCollide),
+                    .in_set(Collision2DSet::Move),
+            )
+            .add_systems(
+                Update,
+                (handle_move_and_collide, update_contacts).in_set(Collision2DSet::Collide),
             )
             .configure_sets(
                 Update,
-                (Collision2DSet::Jump, Collision2DSet::MoveAndCollide)
+                (
+                    Collision2DSet::Jump,
+                    Collision2DSet::Move,
+                    Collision2DSet::Collide,
+                )
+                    .in_set(FullCollision2DSet)
                     .after(InputsSet)
                     .chain(),
-            );
+            )
+            .configure_sets(Update, FullCollision2DSet.after(SolidWorldSyncSet));
+        if self.solid_world_type == SolidWorldType::Ldtk {
+            app.add_plugins(LdtkSolidWorldPlugin);
+        }
     }
 }
 
@@ -80,25 +124,6 @@ impl Default for Friction {
     }
 }
 
-pub trait CollisionCheck {
-    fn is_colliding(&self, pos: Vec2, hitbox: &Hitbox) -> bool;
-
-    fn is_world_loaded(&self) -> bool {
-        true
-    }
-}
-
-fn handle_move_and_collide(
-    mut q: Query<(&mut Transform, &Hitbox, &mut Velocity2D), With<CollisionActor>>,
-    collision: LdtkCollisionCheck,
-) {
-    for (mut transform, hitbox, mut velocity_2d) in &mut q {
-        move_and_collide(&mut transform, hitbox, &mut velocity_2d, |pos, hitbox| {
-            collision.is_colliding(pos, hitbox)
-        });
-    }
-}
-
 fn apply_friction(mut q: Query<(&mut Velocity2D, &Friction), With<CollisionActor>>) {
     for (mut velocity, friction) in &mut q {
         velocity.x *= friction.amount;
@@ -124,17 +149,6 @@ fn apply_speed_clamp(mut q: Query<(&mut Velocity2D, &SpeedClamp), With<Collision
     }
 }
 
-fn update_contacts(
-    mut q: Query<(&mut Transform, &Hitbox, &mut CollisionContacts)>,
-    collision: LdtkCollisionCheck,
-) {
-    for (transform, hitbox, mut contacts) in &mut q {
-        *contacts = get_collision_contacts(transform.get_2d_pos(), hitbox, |pos, hitbox| {
-            collision.is_colliding(pos, hitbox)
-        });
-    }
-}
-
 #[derive(Component, Deref, DerefMut)]
 pub struct MoveSpeed(pub f32);
 impl Default for MoveSpeed {
@@ -152,5 +166,74 @@ fn apply_platformer_velocity_from_intent(
 ) {
     for (mut velocity_2d, move_intent, move_speed) in &mut q {
         velocity_2d.x += move_intent.x as f32 * move_speed.0;
+    }
+}
+
+fn handle_move_and_collide(
+    mut q: Query<(&mut Transform, &Hitbox, &mut Velocity2D), With<CollisionActor>>,
+    solid: Res<SolidWorld>,
+) {
+    for (mut transform, hitbox, mut velocity_2d) in &mut q {
+        move_and_collide(&mut transform, hitbox, &mut velocity_2d, |pos, hitbox| {
+            solid.is_colliding(pos, hitbox)
+        });
+    }
+}
+
+fn update_contacts(
+    mut q: Query<(&Transform, &Hitbox, &mut CollisionContacts)>,
+    solid: Res<SolidWorld>,
+) {
+    for (transform, hitbox, mut contacts) in &mut q {
+        *contacts = get_collision_contacts(transform.get_2d_pos(), hitbox, |pos, hitbox| {
+            solid.is_colliding(pos, hitbox)
+        });
+    }
+}
+
+/// The entity will try to snap to the ground as soon as they can
+#[derive(Component)]
+#[require(Hitbox, Transform)]
+pub struct SnapToGround {
+    pub max_attempts: u32,
+}
+impl Default for SnapToGround {
+    fn default() -> Self {
+        Self { max_attempts: 512 }
+    }
+}
+
+fn snap_to_ground(
+    mut q: Query<(Entity, &mut Transform, &Hitbox, &SnapToGround), With<CollisionActor>>,
+    solid: Res<SolidWorld>,
+    mut commands: Commands,
+) {
+    if !solid.is_loaded() {
+        return;
+    }
+    for (entity, mut transform, hitbox, snap) in &mut q {
+        let mut attempts = 0;
+        let max_attempts = snap.max_attempts;
+        while solid.is_colliding(transform.get_2d_pos(), hitbox) {
+            transform.translation.y += 1.;
+            if attempts > max_attempts {
+                warn!(
+                    "Could not snap to ground: Could not ascend above ground in time. Will try again later"
+                );
+            }
+            attempts += 1;
+        }
+        attempts = 0;
+        while !solid.is_colliding(transform.get_2d_pos(), hitbox) {
+            transform.translation.y -= 1.;
+            if attempts > max_attempts {
+                warn!(
+                    "Could not snap to ground: Could not descend onto ground in time. Will try again later"
+                );
+            }
+            attempts += 1;
+        }
+        transform.translation.y += 1.;
+        commands.entity(entity).remove::<SnapToGround>();
     }
 }

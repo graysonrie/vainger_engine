@@ -6,7 +6,8 @@ pub struct CollisionJumpPlugin;
 
 impl Plugin for CollisionJumpPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(handle_jump_event);
+        app.add_observer(on_do_jump);
+        app.add_observer(on_jump_succeeded);
         app.add_systems(
             Update,
             (
@@ -32,7 +33,10 @@ impl Default for Jump {
     }
 }
 
-/// Tells this entity to perform a jump
+/// Tells this entity to perform a jump.
+///
+/// Note that this does **not** mean the entity *will jump*,
+/// since it will first check to see if the entity is grounded
 #[derive(EntityEvent, Clone, Debug)]
 pub struct DoJump(pub Entity);
 
@@ -66,6 +70,9 @@ impl JumpBuffer {
     fn advance(&mut self) {
         self.pressed = self.pressed.saturating_sub(1);
         self.released = self.released.saturating_sub(1);
+    }
+    pub fn zero_released(&mut self) {
+        self.released = 0;
     }
 }
 impl Default for JumpBuffer {
@@ -108,27 +115,33 @@ impl Default for Gravity {
     fn default() -> Self {
         Self {
             scale: 1.,
-            falling: 1,
+            falling: 0,
         }
     }
 }
 
 fn handle_jump_from_buffer(
-    mut q: Query<(Entity, &mut JumpBuffer, &CollisionContacts), (With<CollisionActor>, With<Jump>)>,
+    mut q: Query<(Entity, &mut JumpBuffer), (With<CollisionActor>, With<Jump>)>,
     mut commands: Commands,
 ) {
-    for (entity, mut jump_buffer, contacts) in &mut q {
+    for (entity, jump_buffer) in &mut q {
         if jump_buffer.pressed_active() {
             commands.trigger(DoJump(entity));
-            jump_buffer.pressed = 0;
-        }
-        if contacts.floor {
-            jump_buffer.released = 0;
         }
     }
 }
 
-fn handle_jump_event(
+fn on_jump_succeeded(event: On<JumpSucceeded>, mut q: Query<&mut JumpBuffer>) {
+    if let Ok(mut buffer) = q.get_mut(event.0) {
+        buffer.pressed = 0;
+    }
+}
+
+/// Emitted when a [`DoJump`] event succeeds (the entity performs a jump)
+#[derive(EntityEvent)]
+pub struct JumpSucceeded(pub Entity);
+
+fn on_do_jump(
     event: On<DoJump>,
     mut q: Query<
         (
@@ -140,10 +153,12 @@ fn handle_jump_event(
         ),
         With<CollisionActor>,
     >,
+    mut commands: Commands,
 ) {
     if let Ok((jump, coyote, mut velocity, contacts, gravity)) = q.get_mut(event.0) {
         let can_jump = contacts.floor || coyote.map_or_default(|c| c.is_active(gravity.falling));
         if can_jump {
+            commands.trigger(JumpSucceeded(event.0));
             velocity.y = jump.height;
         }
     }
@@ -177,7 +192,7 @@ pub struct JumpCut {
     amount: f32,
 }
 impl JumpCut {
-    fn new(amount: f32) -> Self {
+    pub fn new(amount: f32) -> Self {
         Self { amount }
     }
 }

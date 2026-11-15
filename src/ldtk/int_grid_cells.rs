@@ -162,11 +162,10 @@ impl IntGridCells {
             layer_name: collision_layer_name,
         })
     }
-
 }
 
-/// Copies the spawned level's Collision IntGrid onto the drive world's [`IntGridCells`].
-fn populate_int_grid_cells(
+/// Copies the spawned level's Collision IntGrid onto the world's [`IntGridCells`].
+pub fn populate_int_grid_cells(
     mut spawned: MessageReader<LevelEvent>,
     mut grids: Query<(&LdtkProjectHandle, &mut IntGridCells)>,
     projects: Res<Assets<LdtkProject>>,
