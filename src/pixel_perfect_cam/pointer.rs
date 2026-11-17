@@ -12,13 +12,13 @@ pub struct GamePointer<'w, 's> {
         'w,
         's,
         (
-            &'static GlobalTransform,
+            &'static CameraSmoothPos,
             &'static ScreenSlot,
             &'static CameraZoom,
         ),
         With<PixelPerfectCamera>,
     >,
-    canvases: Query<'w, 's, (&'static Transform, &'static Sprite), With<GameCanvas>>,
+    config: Res<'w, PixelPerfectCameraConfig>,
     mouse: Res<'w, ButtonInput<MouseButton>>,
     touches: Res<'w, Touches>,
 }
@@ -50,19 +50,21 @@ impl GamePointer<'_, '_> {
         let on_canvas = cam.viewport_to_world_2d(transform, cursor).ok()?;
 
         let mut best: Option<PointerHit> = None;
-        for (camera_transform, slot, zoom) in &self.cameras {
-            let Ok((sprite_transform, sprite)) = self.canvases.get(slot.canvas) else {
-                continue;
-            };
-            let half = sprite.custom_size.unwrap_or(Vec2::ZERO) * 0.5;
-            let local = on_canvas - sprite_transform.translation.truncate();
+        for (smooth, slot, zoom) in &self.cameras {
+            // Hit-test the logical cell, not the overscanned/offset sprite.
+            let center = super::layout::cell_center(
+                slot.rect,
+                self.config.game_width,
+                self.config.game_height,
+            );
+            let half = Vec2::new(slot.rect.width() as f32, slot.rect.height() as f32) * 0.5;
+            let local = on_canvas - center;
             let inside =
                 local.x >= -half.x && local.x <= half.x && local.y >= -half.y && local.y <= half.y;
             if !inside {
                 continue;
             }
-            let world = camera_transform.translation().truncate()
-                + local / super::layout::effective_zoom(zoom.0);
+            let world = smooth.0 + local / super::layout::effective_zoom(zoom.0);
             let hit = PointerHit {
                 cell_min: slot.rect.min,
                 world,

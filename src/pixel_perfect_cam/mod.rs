@@ -315,6 +315,9 @@ fn sync_smooth_from_transform_on_add(
 
 /// Floors each camera's smooth center for the low-res RT and shifts its
 /// [`GameCanvas`] by `-leftover * zoom` so the upscaled view stays smooth.
+///
+/// The sprite is grown by one world pixel (in canvas space) and biased toward
+/// +X/+Y so the negative leftover offset never exposes the outer clear color.
 fn apply_pixel_snap(
     config: Res<PixelPerfectCameraConfig>,
     mut cameras: Query<
@@ -326,7 +329,10 @@ fn apply_pixel_snap(
         ),
         With<PixelPerfectCamera>,
     >,
-    mut canvases: Query<&mut Transform, (With<GameCanvas>, Without<PixelPerfectCamera>)>,
+    mut canvases: Query<
+        (&mut Transform, &mut Sprite),
+        (With<GameCanvas>, Without<PixelPerfectCamera>),
+    >,
 ) {
     for (smooth, mut transform, zoom, slot) in &mut cameras {
         let snapped = smooth.0.floor();
@@ -334,12 +340,17 @@ fn apply_pixel_snap(
         transform.translation.x = snapped.x;
         transform.translation.y = snapped.y;
 
-        let Ok(mut canvas) = canvases.get_mut(slot.canvas) else {
+        let Ok((mut canvas, mut sprite)) = canvases.get_mut(slot.canvas) else {
             continue;
         };
+        let pad = layout::effective_zoom(zoom.0);
+        let base = Vec2::new(slot.rect.width() as f32, slot.rect.height() as f32);
         let center = layout::cell_center(slot.rect, config.game_width, config.game_height);
-        let offset = -leftover * layout::effective_zoom(zoom.0);
-        canvas.translation = (center + offset).extend(0.0);
+        let offset = -leftover * pad;
+        // Extra size sits on the right/top; leftover pulls the sprite left/down into it.
+        let bias = Vec2::splat(pad * 0.5);
+        canvas.translation = (center + offset + bias).extend(0.0);
+        sprite.custom_size = Some(base + Vec2::splat(pad));
     }
 }
 
