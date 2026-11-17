@@ -13,17 +13,15 @@ impl Plugin for CameraBoundsPlugin {
 
 fn clamp_camera_bounds(
     mut query: Query<
-        (&mut Transform, &CameraBounds, &ScreenSlot, &CameraZoom),
+        (&mut CameraSmoothPos, &CameraBounds, &ScreenSlot, &CameraZoom),
         With<PixelPerfectCamera>,
     >,
 ) {
-    for (mut camera_transform, camera_bounds, slot, zoom) in &mut query {
-        let clamped = camera_bounds.clamp_center(
-            camera_transform.get_2d_pos(),
+    for (mut smooth, camera_bounds, slot, zoom) in &mut query {
+        smooth.0 = camera_bounds.clamp_center(
+            smooth.0,
             slot.visible_world_size(zoom.0) * 0.5,
         );
-        camera_transform.translation.x = clamped.x;
-        camera_transform.translation.y = clamped.y;
     }
 }
 

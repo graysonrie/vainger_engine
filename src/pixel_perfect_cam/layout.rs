@@ -392,7 +392,7 @@ fn positive_pixels(value: f32) -> u32 {
 }
 
 /// Center of `rect` in outer-camera space. The base canvas is centered on the origin, Y-up.
-fn cell_center(rect: URect, game_width: f32, game_height: f32) -> Vec2 {
+pub(crate) fn cell_center(rect: URect, game_width: f32, game_height: f32) -> Vec2 {
     let width = rect.width() as f32;
     let height = rect.height() as f32;
     Vec2::new(

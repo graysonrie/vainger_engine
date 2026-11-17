@@ -50,7 +50,7 @@ impl Plugin for PixelPerfectCameraFollowPlugin {
 
 fn handle_follow(
     mut cameras: Query<
-        (Entity, &mut Transform),
+        (Entity, &mut CameraSmoothPos),
         (With<PixelPerfectCamera>, Without<PixelPerfectCameraFollow>),
     >,
     followers: Query<(&Transform, &PixelPerfectCameraFollow), Without<PixelPerfectCamera>>,
@@ -69,26 +69,25 @@ fn handle_follow(
         }
         chosen.push(ChosenFollow {
             camera,
-            target: transform.translation,
+            target: transform.translation.truncate(),
             decay_rate: follow.decay_rate,
         });
     }
 
     let dt = time.delta_secs();
-    for (entity, mut transform) in &mut cameras {
+    for (entity, mut smooth) in &mut cameras {
         let Some(choice) = chosen.iter().find(|choice| choice.camera == entity) else {
             continue;
         };
-        let desired_pos = Vec3::new(choice.target.x, choice.target.y, transform.translation.z);
-        transform
-            .translation
-            .smooth_nudge(&desired_pos, choice.decay_rate, dt);
+        smooth
+            .0
+            .smooth_nudge(&choice.target, choice.decay_rate, dt);
     }
 }
 
 struct ChosenFollow {
     camera: Entity,
-    target: Vec3,
+    target: Vec2,
     decay_rate: f32,
 }
 

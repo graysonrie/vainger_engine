@@ -19,11 +19,13 @@ pub use layout::{ScreenIndex, ScreenSlot};
 #[allow(unused)]
 pub use panner::CameraPanner2dBundle;
 
-/// These systems run in the Update event
+/// These systems run in PostUpdate before camera extraction.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PixelPerfectCameraControlsSet {
     Follow,
     Bounds,
+    /// Floor the inner camera and shift each [`GameCanvas`] by the fractional leftover.
+    Snap,
 }
 use bevy::camera::visibility::RenderLayers;
 use bevy::render::render_resource::BlendState;
@@ -41,9 +43,19 @@ pub use window::{NES, PIZZA_TOWER, UFO_50, UFO_50_MOBILE, WindowPluginExt};
 ///
 /// Spawn one per screen. The layout pass packs them into a grid and gives each
 /// its own render target. [`CameraZoom`] is required and defaults to `1.0`.
+///
+/// Gameplay code should read/write [`CameraSmoothPos`]. [`Transform`] is the
+/// snapped render position applied in [`PixelPerfectCameraControlsSet::Snap`].
 #[derive(Component, Default)]
-#[require(Transform, CameraZoom)]
+#[require(Transform, CameraZoom, CameraSmoothPos)]
 pub struct PixelPerfectCamera;
+
+/// Continuous camera center in world pixels (Y-up).
+///
+/// Follow, bounds, and [`PixelPerfectCameraQuery`] update this. The snap pass
+/// floors it onto [`Transform`] and puts the fractional leftover on [`GameCanvas`].
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
+pub struct CameraSmoothPos(pub Vec2);
 
 /// How much world this camera sees, relative to its cell.
 ///
@@ -132,15 +144,21 @@ impl Plugin for PixelPerfectCameraPlugin {
                 PixelPerfectCamCreationSet,
                 PixelPerfectCameraControlsSet::Follow,
                 PixelPerfectCameraControlsSet::Bounds,
+                PixelPerfectCameraControlsSet::Snap,
             )
                 .chain()
                 .before(CameraUpdateSystems),
         );
         layout::build(app);
+        app.add_observer(sync_smooth_from_transform_on_add);
         app.add_systems(Startup, (setup, configure_window_constraints));
         #[cfg(target_arch = "wasm32")]
         app.add_systems(Update, web_color::tag_canvas_color_space);
         app.add_systems(PreUpdate, reset_game_view_slot);
+        app.add_systems(
+            PostUpdate,
+            apply_pixel_snap.in_set(PixelPerfectCameraControlsSet::Snap),
+        );
         app.add_systems(
             PostUpdate,
             sync_window_cameras
@@ -283,6 +301,48 @@ fn reset_game_view_slot(mut slot: ResMut<GameViewSlot>) {
     slot.physical_rect = None;
 }
 
+/// Seed [`CameraSmoothPos`] from the spawn-time [`Transform`] so an explicit
+/// camera translation is not wiped to zero on the first snap.
+fn sync_smooth_from_transform_on_add(
+    event: On<Add, PixelPerfectCamera>,
+    mut q: Query<(&Transform, &mut CameraSmoothPos), With<PixelPerfectCamera>>,
+) {
+    let Ok((transform, mut smooth)) = q.get_mut(event.entity) else {
+        return;
+    };
+    smooth.0 = transform.get_2d_pos();
+}
+
+/// Floors each camera's smooth center for the low-res RT and shifts its
+/// [`GameCanvas`] by `-leftover * zoom` so the upscaled view stays smooth.
+fn apply_pixel_snap(
+    config: Res<PixelPerfectCameraConfig>,
+    mut cameras: Query<
+        (
+            &CameraSmoothPos,
+            &mut Transform,
+            &CameraZoom,
+            &ScreenSlot,
+        ),
+        With<PixelPerfectCamera>,
+    >,
+    mut canvases: Query<&mut Transform, (With<GameCanvas>, Without<PixelPerfectCamera>)>,
+) {
+    for (smooth, mut transform, zoom, slot) in &mut cameras {
+        let snapped = smooth.0.floor();
+        let leftover = smooth.0 - snapped;
+        transform.translation.x = snapped.x;
+        transform.translation.y = snapped.y;
+
+        let Ok(mut canvas) = canvases.get_mut(slot.canvas) else {
+            continue;
+        };
+        let center = layout::cell_center(slot.rect, config.game_width, config.game_height);
+        let offset = -leftover * layout::effective_zoom(zoom.0);
+        canvas.translation = (center + offset).extend(0.0);
+    }
+}
+
 /// Why a [`PixelPerfectCameraQuery`] lookup failed.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum CameraLookupError {
@@ -317,7 +377,7 @@ pub struct PixelPerfectCameraQuery<'w, 's> {
         's,
         (
             Entity,
-            &'static mut Transform,
+            &'static mut CameraSmoothPos,
             &'static CameraZoom,
             Option<&'static ScreenSlot>,
         ),
@@ -326,13 +386,13 @@ pub struct PixelPerfectCameraQuery<'w, 's> {
 }
 
 struct CameraParts<'a> {
-    transform: &'a Transform,
+    smooth: &'a CameraSmoothPos,
     zoom: &'a CameraZoom,
     slot: Option<&'a ScreenSlot>,
 }
 
 struct CameraPartsMut<'a> {
-    transform: Mut<'a, Transform>,
+    smooth: Mut<'a, CameraSmoothPos>,
 }
 
 #[allow(unused)]
@@ -371,22 +431,22 @@ impl PixelPerfectCameraQuery<'_, '_> {
         self.get_xy_of(self.only()?)
     }
 
-    /// World-space center of `camera`, in pixels. Y-up.
+    /// Smooth world-space center of `camera`, in pixels. Y-up.
     pub fn get_xy_of(&self, camera: Entity) -> Result<Vec2, CameraLookupError> {
         let camera = self.camera_ref(camera)?;
-        Ok(camera.transform.get_2d_pos())
+        Ok(camera.smooth.0)
     }
     pub fn set_xy(&mut self, pos: Vec2) -> Result<(), CameraLookupError> {
         self.set_xy_of(self.only()?, pos)
     }
 
-    /// Move `camera`'s center to `pos`. Z is set to `0`.
+    /// Move `camera`'s smooth center to `pos`.
     ///
     /// [`CameraBounds`] are applied later in [`PostUpdate`], so a position
     /// outside the bounds will be pulled back before the frame renders.
     pub fn set_xy_of(&mut self, camera: Entity, pos: Vec2) -> Result<(), CameraLookupError> {
         let mut camera = self.camera_mut(camera)?;
-        camera.transform.translation = pos.extend(0.);
+        camera.smooth.0 = pos;
         Ok(())
     }
     /// Top-left corner of the current viewport in world space (Bevy Y-up).
@@ -471,23 +531,23 @@ impl PixelPerfectCameraQuery<'_, '_> {
     }
 
     fn camera_ref(&self, camera: Entity) -> Result<CameraParts<'_>, CameraLookupError> {
-        let (_, transform, zoom, slot) = self
+        let (_, smooth, zoom, slot) = self
             .cameras
             .get(camera)
             .map_err(|_| CameraLookupError::Unknown { entity: camera })?;
         Ok(CameraParts {
-            transform,
+            smooth,
             zoom,
             slot,
         })
     }
 
     fn camera_mut(&mut self, camera: Entity) -> Result<CameraPartsMut<'_>, CameraLookupError> {
-        let (_, transform, _, _) = self
+        let (_, smooth, _, _) = self
             .cameras
             .get_mut(camera)
             .map_err(|_| CameraLookupError::Unknown { entity: camera })?;
-        Ok(CameraPartsMut { transform })
+        Ok(CameraPartsMut { smooth })
     }
 
     fn visible_size(&self, camera: Entity) -> Result<Vec2, CameraLookupError> {
