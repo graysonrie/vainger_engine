@@ -23,6 +23,8 @@ impl Plugin for CollisionJumpPlugin {
 }
 
 /// If present, this entity will have the ability to jump
+///
+/// Defaults to `12.0`
 #[derive(Component)]
 pub struct Jump {
     height: f32,
@@ -30,6 +32,11 @@ pub struct Jump {
 impl Default for Jump {
     fn default() -> Self {
         Self { height: 12. }
+    }
+}
+impl Jump {
+    pub fn new(height: f32) -> Self {
+        Self { height }
     }
 }
 

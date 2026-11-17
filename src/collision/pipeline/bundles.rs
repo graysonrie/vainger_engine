@@ -32,4 +32,8 @@ impl AsepritePlatformerActorBundle {
             transform: Transform::from_translation(pos.extend(0.)),
         }
     }
+    pub fn with_move_speed(mut self, speed: f32) -> Self {
+        self.character.speed.0 = speed;
+        self
+    }
 }

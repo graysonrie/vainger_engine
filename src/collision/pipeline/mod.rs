@@ -1,16 +1,22 @@
 use crate::{
     collision::{
-        CollisionContacts, get_collision_contacts, move_and_collide, pipeline::{
-            collision_check::SolidWorld, jump::{CollisionJumpPlugin, Gravity}, locomotion::LocomotionDescriptionPlugin,
+        CollisionContacts, get_collision_contacts, move_and_collide,
+        pipeline::{
+            collision_check::SolidWorld,
+            jump::{CollisionJumpPlugin, Gravity},
+            locomotion::LocomotionDescriptionPlugin,
         },
-    }, components::Velocity2D, prelude::*, sets::InputsSet,
+    },
+    components::Velocity2D,
+    prelude::*,
+    sets::InputsSet,
 };
 
-pub mod locomotion;
 pub mod bundles;
 pub mod collision_check;
 pub mod collision_handlers;
 pub mod jump;
+pub mod locomotion;
 
 pub use collision_handlers::ldtk::LdtkSolidWorldPlugin;
 
@@ -61,7 +67,7 @@ impl Collision2DPlugin {
 impl Plugin for Collision2DPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(CollisionJumpPlugin)
-        .add_plugins(LocomotionDescriptionPlugin )
+            .add_plugins(LocomotionDescriptionPlugin)
             .init_resource::<SolidWorld>()
             .insert_resource(Collision2DGravityForce(self.gravity))
             .add_systems(
@@ -146,6 +152,7 @@ fn apply_speed_clamp(mut q: Query<(&mut Velocity2D, &SpeedClamp), With<Collision
     }
 }
 
+/// Defaults to `1.0`
 #[derive(Component, Deref, DerefMut)]
 pub struct MoveSpeed(pub f32);
 impl Default for MoveSpeed {
@@ -154,12 +161,24 @@ impl Default for MoveSpeed {
     }
 }
 
+/// If present on an entity, while you can still write to their [`MoveIntent`], the system that
+/// handles it will not do anything
+#[derive(Component)]
+pub struct IgnoreMoveIntent;
+
 /// Should represent the direction the character was trying to move in their inputs
 #[derive(Component, Default, Deref, DerefMut)]
 pub struct MoveIntent(pub IVec2);
 
 fn apply_platformer_velocity_from_intent(
-    mut q: Query<(&mut Velocity2D, &MoveIntent, &MoveSpeed), (With<CollisionActor>, With<Gravity>)>,
+    mut q: Query<
+        (&mut Velocity2D, &MoveIntent, &MoveSpeed),
+        (
+            With<CollisionActor>,
+            With<Gravity>,
+            Without<IgnoreMoveIntent>,
+        ),
+    >,
 ) {
     for (mut velocity_2d, move_intent, move_speed) in &mut q {
         velocity_2d.x += move_intent.x as f32 * move_speed.0;
