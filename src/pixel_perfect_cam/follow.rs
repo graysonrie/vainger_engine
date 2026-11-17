@@ -83,6 +83,8 @@ fn handle_follow(
         transform
             .translation
             .smooth_nudge(&desired_pos, choice.decay_rate, dt);
+        transform.translation.x = transform.translation.x.round();
+        transform.translation.y = transform.translation.y.round();
     }
 }
 
