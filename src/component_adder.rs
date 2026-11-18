@@ -8,6 +8,12 @@ pub struct ComponentAdder<C: Component + Default> {
     current_amount: u32,
     threshold: u32,
 }
+impl<C: Component + Default> Default for ComponentAdder<C> {
+    fn default() -> Self {
+        Self::new(1)
+    }
+}
+
 impl<C: Component + Default> ComponentAdder<C> {
     pub fn new(threshold: u32) -> Self {
         Self {

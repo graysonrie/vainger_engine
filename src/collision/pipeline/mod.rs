@@ -170,7 +170,6 @@ pub struct IgnoreMoveIntent;
 #[derive(Component, Default, Deref, DerefMut)]
 pub struct MoveIntent(pub IVec2);
 
-
 fn apply_platformer_velocity_from_intent(
     mut q: Query<
         (&mut Velocity2D, &MoveIntent, &MoveSpeed),
