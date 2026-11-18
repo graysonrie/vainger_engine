@@ -38,7 +38,7 @@ impl AppExt for App {
         .add_plugins(LdtkPlugin)
         .add_plugins(AsepriteAnimationPlugin)
         .add_plugins(AsepriteExtPlugin)
-        // .add_plugins(PixelPerfectCameraPlugin::of_size(game_res).with_res(window_scale))
+        .add_plugins(PixelPerfectCameraPlugin::of_size(game_res).with_res(window_scale))
         .add_plugins(PrimitiveAssetsPlugin)
         .add_plugins(AsepriteHitboxPlugin)
         .add_plugins(MovementPlugin)
