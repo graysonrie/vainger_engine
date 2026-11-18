@@ -1,17 +1,24 @@
 use crate::{
     collision::{
-        CollisionContacts, get_collision_contacts, move_and_collide, pipeline::{
-            collision_check::SolidWorld, jump::{CollisionJumpPlugin, Gravity}, locomotion::LocomotionDescriptionPlugin, snap_to_ground::SnapToGroundPlugin,
+        CollisionContacts, get_collision_contacts, move_and_collide,
+        pipeline::{
+            collision_check::SolidWorld,
+            jump::{CollisionJumpPlugin, Gravity},
+            locomotion::LocomotionDescriptionPlugin,
+            snap_to_ground::SnapToGroundPlugin,
         },
-    }, components::Velocity2D, prelude::*, sets::InputsSet,
+    },
+    components::Velocity2D,
+    prelude::*,
+    sets::InputsSet,
 };
 
-pub mod snap_to_ground;
 pub mod bundles;
 pub mod collision_check;
 pub mod collision_handlers;
 pub mod jump;
 pub mod locomotion;
+pub mod snap_to_ground;
 
 pub use collision_handlers::ldtk::LdtkSolidWorldPlugin;
 
@@ -63,7 +70,6 @@ impl Plugin for Collision2DPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(CollisionJumpPlugin)
             .add_plugins(LocomotionDescriptionPlugin)
-
             .add_plugins(SnapToGroundPlugin)
             .init_resource::<SolidWorld>()
             .insert_resource(Collision2DGravityForce(self.gravity))
@@ -208,4 +214,3 @@ fn update_contacts(
         });
     }
 }
-

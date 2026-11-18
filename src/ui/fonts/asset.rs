@@ -124,6 +124,5 @@ impl AssetLoader for BitmapFontLoader {
 
     fn extensions(&self) -> &[&str] {
         &["font.ron"]
-        
     }
 }

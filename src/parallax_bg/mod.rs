@@ -261,6 +261,7 @@ impl<S: FreelyMutableState> Plugin for ParallaxBackgroundPlugin<S> {
                 PostUpdate,
                 scroll::update_parallax_scroll
                     .after(PixelPerfectCameraControlsSet::Snap)
+                    .before(PixelPerfectCameraControlsSet::Sprites)
                     .before(TransformSystems::Propagate)
                     .run_if(
                         resource_exists::<ParallaxAseprite>

@@ -3,9 +3,9 @@ mod config;
 pub mod follow;
 mod layout;
 mod panner;
-mod snap;
 pub mod pointer;
 pub mod screen_transition;
+mod snap;
 #[cfg(target_arch = "wasm32")]
 mod web_color;
 
@@ -20,13 +20,19 @@ pub use layout::{ScreenIndex, ScreenSlot};
 #[allow(unused)]
 pub use panner::CameraPanner2dBundle;
 
-/// Camera follow, bounds, and render-grid snap. Runs in [`PostUpdate`] before the
-/// transform propagate, so the frame renders the snapped position.
+/// Camera follow, bounds, camera snap, then sprite snap. Runs in [`PostUpdate`]
+/// before the transform propagate, so the frame renders the snapped positions.
+///
+/// [`Self::Sprites`](PixelPerfectCameraControlsSet::Sprites) runs after parallax has placed its
+/// layers. Sprite logical positions are restored earlier, in [`PreUpdate`], so
+/// collision still sees the fractional gameplay position.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PixelPerfectCameraControlsSet {
     Follow,
     Bounds,
     Snap,
+    /// Quantize world sprites onto the camera's render grid.
+    Sprites,
 }
 use bevy::camera::visibility::RenderLayers;
 use bevy::render::render_resource::BlendState;
@@ -147,15 +153,20 @@ impl Plugin for PixelPerfectCameraPlugin {
                 PixelPerfectCameraControlsSet::Follow,
                 PixelPerfectCameraControlsSet::Bounds,
                 PixelPerfectCameraControlsSet::Snap,
+                PixelPerfectCameraControlsSet::Sprites,
             )
                 .chain()
                 .before(CameraUpdateSystems)
                 .before(TransformSystems::Propagate),
         );
         layout::build(app);
+        app.add_systems(PreUpdate, snap::restore_sprite_positions);
         app.add_systems(
             PostUpdate,
-            snap::snap_camera_to_render_grid.in_set(PixelPerfectCameraControlsSet::Snap),
+            (
+                snap::snap_camera_to_render_grid.in_set(PixelPerfectCameraControlsSet::Snap),
+                snap::snap_sprites_to_render_grid.in_set(PixelPerfectCameraControlsSet::Sprites),
+            ),
         );
         app.add_systems(Startup, (setup, configure_window_constraints));
         #[cfg(target_arch = "wasm32")]
