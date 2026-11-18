@@ -43,7 +43,9 @@ impl Plugin for PixelPerfectCameraFollowPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             PostUpdate,
-            handle_follow.in_set(PixelPerfectCameraControlsSet::Follow),
+            (super::snap::restore_subpixel_pos, handle_follow)
+                .chain()
+                .in_set(PixelPerfectCameraControlsSet::Follow),
         );
     }
 }
@@ -83,8 +85,6 @@ fn handle_follow(
         transform
             .translation
             .smooth_nudge(&desired_pos, choice.decay_rate, dt);
-        // transform.translation.x = transform.translation.x.round();
-        // transform.translation.y = transform.translation.y.round();
     }
 }
 

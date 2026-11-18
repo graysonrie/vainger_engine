@@ -13,6 +13,7 @@ mod scroll;
 use bevy::asset::UntypedHandle;
 use bevy::platform::collections::HashMap;
 use bevy::state::state::FreelyMutableState;
+use bevy::transform::TransformSystems;
 
 use crate::aseprite::AseInfo;
 use crate::prelude::*;
@@ -257,13 +258,21 @@ impl<S: FreelyMutableState> Plugin for ParallaxBackgroundPlugin<S> {
                     .run_if(resource_exists::<ParallaxAseprite>),
             )
             .add_systems(
-                Last,
-                (scroll::update_parallax_scroll, fade::apply_background_fade)
-                    .chain()
+                PostUpdate,
+                scroll::update_parallax_scroll
+                    .after(PixelPerfectCameraControlsSet::Snap)
+                    .before(TransformSystems::Propagate)
                     .run_if(
                         resource_exists::<ParallaxAseprite>
                             .and_then(any_with_component::<PixelPerfectCamera>),
                     ),
+            )
+            .add_systems(
+                Last,
+                fade::apply_background_fade.run_if(
+                    resource_exists::<ParallaxAseprite>
+                        .and_then(any_with_component::<PixelPerfectCamera>),
+                ),
             );
     }
 }

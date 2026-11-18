@@ -2,13 +2,38 @@ use crate::prelude::*;
 
 /// Provides details about the game dimensions and camera bounds, as well
 /// as ways to set them and read from them
-#[derive(Resource, Clone, Default)]
+#[derive(Resource, Clone)]
 pub struct PixelPerfectCameraConfig {
     pub game_width: f32,
     pub game_height: f32,
+    /// Target texels per world pixel.
+    ///
+    /// `1` draws one texel per world pixel. `2` matches the GameMaker camera's
+    /// `res`: the view is rasterized at twice the game resolution, then scaled
+    /// up by a whole number. The camera snaps to `1/res` so those texels stay aligned.
+    ///
+    /// ### NOTE:
+    /// The window scale should be a multiple of this. Values below `1` are treated as `1`.
+    pub res: u32,
+}
+
+impl Default for PixelPerfectCameraConfig {
+    fn default() -> Self {
+        Self {
+            game_width: 0.0,
+            game_height: 0.0,
+            res: 1,
+        }
+    }
 }
 
 impl PixelPerfectCameraConfig {
+    /// [`Self::res`], or `1` when it was set below `1`.
+    #[inline]
+    pub fn render_scale(&self) -> u32 {
+        self.res.max(1)
+    }
+
     #[inline]
     pub fn height_half(&self) -> f32 {
         self.game_height / 2.

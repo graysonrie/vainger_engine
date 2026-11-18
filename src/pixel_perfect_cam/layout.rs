@@ -1,7 +1,8 @@
 //! Packs every [`PixelPerfectCamera`](super::PixelPerfectCamera) into the base canvas.
 
 use bevy::camera::visibility::RenderLayers;
-use bevy::camera::{RenderTarget, ScalingMode};
+use bevy::camera::{ImageRenderTarget, RenderTarget, ScalingMode};
+use bevy::image::ImageSampler;
 use bevy::render::render_resource::{
     Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
 };
@@ -166,6 +167,7 @@ fn layout_cameras(
     let mut ordered = order.entries.clone();
     ordered.sort_by_key(|entry| entry.index);
 
+    let res = config.render_scale();
     let width = positive_pixels(config.game_width);
     let height = positive_pixels(config.game_height);
     if width == 0 || height == 0 {
@@ -197,7 +199,7 @@ fn layout_cameras(
         let layers = camera_layers(slot_index);
 
         if let Some(mut slot) = slot {
-            resize_slot(&mut images, &mut slot, rect);
+            resize_slot(&mut images, &mut slot, rect, res);
             place_canvas(&mut canvases, slot.canvas, center, rect);
             if let Some(mut projection) = projection {
                 apply_visible_projection(&mut projection, visible);
@@ -206,7 +208,7 @@ fn layout_cameras(
                 commands.entity(entity).insert(layers);
             }
         } else {
-            let image = images.add(canvas_image(rect.size()));
+            let image = images.add(canvas_image(target_pixels(rect, res)));
             let canvas = commands
                 .spawn((
                     Sprite {
@@ -227,7 +229,11 @@ fn layout_cameras(
                 },
                 Camera2d,
                 inner_camera(),
-                RenderTarget::Image(image.into()),
+                RenderTarget::Image(ImageRenderTarget {
+                    handle: image.clone(),
+                    // Logical pixels stay at the game resolution, so UI `Val::Px` does not shrink.
+                    scale_factor: res as f32,
+                }),
                 projection_for(visible),
                 Msaa::Off,
                 layers,
@@ -282,18 +288,27 @@ fn sync_outer_letterbox(
     }
 }
 
-fn resize_slot(images: &mut Assets<Image>, slot: &mut ScreenSlot, rect: URect) {
-    if slot.rect == rect {
-        return;
-    }
+fn resize_slot(images: &mut Assets<Image>, slot: &mut ScreenSlot, rect: URect, res: u32) {
+    let target = target_extent(rect, res);
     if let Some(mut image) = images.get_mut(&slot.image) {
-        image.resize(Extent3d {
-            width: rect.width().max(1),
-            height: rect.height().max(1),
-            depth_or_array_layers: 1,
-        });
+        if image.texture_descriptor.size != target {
+            image.resize(target);
+        }
     }
     slot.rect = rect;
+}
+
+fn target_pixels(rect: URect, res: u32) -> UVec2 {
+    rect.size() * res.max(1)
+}
+
+fn target_extent(rect: URect, res: u32) -> Extent3d {
+    let size = target_pixels(rect, res);
+    Extent3d {
+        width: size.x.max(1),
+        height: size.y.max(1),
+        depth_or_array_layers: 1,
+    }
 }
 
 fn place_canvas(
@@ -381,6 +396,7 @@ fn canvas_image(size: UVec2) -> Image {
                 | TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         },
+        sampler: ImageSampler::nearest(),
         ..default()
     };
     canvas.resize(canvas_size);
@@ -451,6 +467,7 @@ mod tests {
             .insert_resource(PixelPerfectCameraConfig {
                 game_width: 320.0,
                 game_height: 180.0,
+                ..Default::default()
             });
         build(&mut app);
         app
@@ -483,6 +500,32 @@ mod tests {
         assert_eq!(first_slot.rect, URect::new(0, 0, 320, 180));
         assert!(app.world().get_entity(removed_canvas).is_err());
         assert_fixed_view(&app, first, 160.0, 90.0);
+    }
+
+    #[test]
+    fn render_target_is_res_times_the_cell_and_the_view_stays_in_world_pixels() {
+        let mut app = app();
+        app.world_mut()
+            .resource_mut::<PixelPerfectCameraConfig>()
+            .res = 2;
+        let camera = app.world_mut().spawn(PixelPerfectCamera).id();
+        app.update();
+
+        let slot = app.world().get::<ScreenSlot>(camera).unwrap();
+        let image = app
+            .world()
+            .resource::<Assets<Image>>()
+            .get(&slot.image)
+            .unwrap();
+        assert_eq!(image.size(), UVec2::new(640, 360));
+        let sprite = app.world().get::<Sprite>(slot.canvas).unwrap();
+        assert_eq!(sprite.custom_size, Some(Vec2::new(320.0, 180.0)));
+        assert_fixed_view(&app, camera, 320.0, 180.0);
+
+        let RenderTarget::Image(target) = app.world().get::<RenderTarget>(camera).unwrap() else {
+            panic!("camera does not render to an image");
+        };
+        assert_eq!(target.scale_factor, 2.0);
     }
 
     fn assert_fixed_view(app: &App, camera: Entity, width: f32, height: f32) {

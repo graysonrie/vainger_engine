@@ -3,6 +3,7 @@ mod config;
 pub mod follow;
 mod layout;
 mod panner;
+mod snap;
 pub mod pointer;
 pub mod screen_transition;
 #[cfg(target_arch = "wasm32")]
@@ -19,17 +20,20 @@ pub use layout::{ScreenIndex, ScreenSlot};
 #[allow(unused)]
 pub use panner::CameraPanner2dBundle;
 
-/// These systems run in the Update event
+/// Camera follow, bounds, and render-grid snap. Runs in [`PostUpdate`] before the
+/// transform propagate, so the frame renders the snapped position.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PixelPerfectCameraControlsSet {
     Follow,
     Bounds,
+    Snap,
 }
 use bevy::camera::visibility::RenderLayers;
 use bevy::render::render_resource::BlendState;
 use bevy::{
     camera::{CameraOutputMode, CameraUpdateSystems, ScalingMode, Viewport},
     prelude::*,
+    transform::TransformSystems,
     window::PrimaryWindow,
 };
 use bevy_egui::{EguiGlobalSettings, EguiPostUpdateSet, PrimaryEguiContext};
@@ -37,12 +41,15 @@ use bevy_egui::{EguiGlobalSettings, EguiPostUpdateSet, PrimaryEguiContext};
 #[allow(unused_imports)]
 pub use window::{NES, PIZZA_TOWER, UFO_50, UFO_50_MOBILE, WindowPluginExt};
 
+use snap::SubpixelPos;
+
 /// Low-resolution camera that renders the world into one cell of the base canvas.
 ///
 /// Spawn one per screen. The layout pass packs them into a grid and gives each
 /// its own render target. [`CameraZoom`] is required and defaults to `1.0`.
+/// The target has [`PixelPerfectCameraConfig::res`] texels per game pixel.
 #[derive(Component, Default)]
-#[require(Transform, CameraZoom)]
+#[require(Transform, CameraZoom, SubpixelPos)]
 pub struct PixelPerfectCamera;
 
 /// How much world this camera sees, relative to its cell.
@@ -108,8 +115,15 @@ impl PixelPerfectCameraPlugin {
             config: PixelPerfectCameraConfig {
                 game_width,
                 game_height,
+                res: 1,
             },
         }
+    }
+
+    /// Rasterize at `res` texels per world pixel. See [`PixelPerfectCameraConfig::res`].
+    pub fn with_res(mut self, res: u32) -> Self {
+        self.config.res = res.max(1);
+        self
     }
 }
 
@@ -132,11 +146,17 @@ impl Plugin for PixelPerfectCameraPlugin {
                 PixelPerfectCamCreationSet,
                 PixelPerfectCameraControlsSet::Follow,
                 PixelPerfectCameraControlsSet::Bounds,
+                PixelPerfectCameraControlsSet::Snap,
             )
                 .chain()
-                .before(CameraUpdateSystems),
+                .before(CameraUpdateSystems)
+                .before(TransformSystems::Propagate),
         );
         layout::build(app);
+        app.add_systems(
+            PostUpdate,
+            snap::snap_camera_to_render_grid.in_set(PixelPerfectCameraControlsSet::Snap),
+        );
         app.add_systems(Startup, (setup, configure_window_constraints));
         #[cfg(target_arch = "wasm32")]
         app.add_systems(Update, web_color::tag_canvas_color_space);
@@ -323,6 +343,7 @@ pub struct PixelPerfectCameraQuery<'w, 's> {
         ),
         With<PixelPerfectCamera>,
     >,
+    samples: Query<'w, 's, &'static mut SubpixelPos, With<PixelPerfectCamera>>,
 }
 
 struct CameraParts<'a> {
@@ -384,9 +405,15 @@ impl PixelPerfectCameraQuery<'_, '_> {
     ///
     /// [`CameraBounds`] are applied later in [`PostUpdate`], so a position
     /// outside the bounds will be pulled back before the frame renders.
+    /// The position that is drawn is then snapped onto the render grid.
     pub fn set_xy_of(&mut self, camera: Entity, pos: Vec2) -> Result<(), CameraLookupError> {
-        let mut camera = self.camera_mut(camera)?;
-        camera.transform.translation = pos.extend(0.);
+        {
+            let mut camera = self.camera_mut(camera)?;
+            camera.transform.translation = pos.extend(0.);
+        }
+        if let Ok(mut sample) = self.samples.get_mut(camera) {
+            sample.set_exact(pos);
+        }
         Ok(())
     }
     /// Top-left corner of the current viewport in world space (Bevy Y-up).
