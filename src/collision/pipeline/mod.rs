@@ -170,6 +170,7 @@ pub struct IgnoreMoveIntent;
 #[derive(Component, Default, Deref, DerefMut)]
 pub struct MoveIntent(pub IVec2);
 
+
 fn apply_platformer_velocity_from_intent(
     mut q: Query<
         (&mut Velocity2D, &MoveIntent, &MoveSpeed),
@@ -185,8 +186,14 @@ fn apply_platformer_velocity_from_intent(
     }
 }
 
+#[derive(Component, Default)]
+pub struct DisablePlatformerMovement;
+
 fn handle_move_and_collide(
-    mut q: Query<(&mut Transform, &Hitbox, &mut Velocity2D), With<CollisionActor>>,
+    mut q: Query<
+        (&mut Transform, &Hitbox, &mut Velocity2D),
+        (With<CollisionActor>, Without<DisablePlatformerMovement>),
+    >,
     solid: Res<SolidWorld>,
 ) {
     for (mut transform, hitbox, mut velocity_2d) in &mut q {

@@ -2,9 +2,7 @@ use crate::aseprite::hitbox::AsepriteHitbox;
 
 use super::*;
 
-#[derive(Component, Default)]
-pub struct PlatformerPlayer;
-
+/// A platforming character that can move and is affected by gravity
 #[derive(Bundle, Default)]
 pub struct PlatformerActorBundle {
     actor: CollisionActor,
@@ -12,6 +10,9 @@ pub struct PlatformerActorBundle {
     velocity: Velocity2D,
     contacts: CollisionContacts,
     speed: MoveSpeed,
+    gravity: Gravity,
+    move_intent: MoveIntent,
+    transform: Transform,
 }
 
 #[derive(Bundle)]
@@ -20,16 +21,18 @@ pub struct AsepritePlatformerActorBundle {
     pub hitbox: AsepriteHitbox,
     pub ase: AseAnimation,
     pub sprite: Sprite,
-    pub transform: Transform,
 }
 impl AsepritePlatformerActorBundle {
     pub fn new(aseprite: Handle<Aseprite>, tag: &'static str, pos: Vec2) -> Self {
+        let transform = Transform::from_translation(pos.extend(0.));
         Self {
-            character: PlatformerActorBundle::default(),
+            character: PlatformerActorBundle {
+                transform,
+                ..Default::default()
+            },
             hitbox: AsepriteHitbox::new(aseprite.clone()),
             ase: AseAnimation::from_tag(aseprite, tag),
             sprite: Sprite::default(),
-            transform: Transform::from_translation(pos.extend(0.)),
         }
     }
     pub fn with_move_speed(mut self, speed: f32) -> Self {

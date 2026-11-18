@@ -16,6 +16,7 @@ pub mod parallax_bg;
 pub mod pixel_perfect_cam;
 pub mod prelude;
 pub mod preludes;
+pub mod component_adder;
 mod resources;
 pub mod ui;
 mod util;
