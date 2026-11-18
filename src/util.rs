@@ -16,16 +16,38 @@ pub trait TransformExt {
     /// self.translation.truncate()
     /// ```
     fn get_2d_pos(&self) -> Vec2;
+
+    /// Gets the y position
+    fn y(&self) -> f32;
+
+    /// Gets the x position
+    fn x(&self) -> f32;
 }
 
 impl TransformExt for Transform {
     fn get_2d_pos(&self) -> Vec2 {
         self.translation.truncate()
     }
+
+    fn y(&self) -> f32 {
+        self.translation.y
+    }
+
+    fn x(&self) -> f32 {
+        self.translation.x
+    }
 }
 impl TransformExt for GlobalTransform {
     fn get_2d_pos(&self) -> Vec2 {
         self.translation().truncate()
+    }
+
+    fn y(&self) -> f32 {
+        self.translation().y
+    }
+
+    fn x(&self) -> f32 {
+        self.translation().x
     }
 }
 

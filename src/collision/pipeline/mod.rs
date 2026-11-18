@@ -1,17 +1,12 @@
 use crate::{
     collision::{
-        CollisionContacts, get_collision_contacts, move_and_collide,
-        pipeline::{
-            collision_check::SolidWorld,
-            jump::{CollisionJumpPlugin, Gravity},
-            locomotion::LocomotionDescriptionPlugin,
+        CollisionContacts, get_collision_contacts, move_and_collide, pipeline::{
+            collision_check::SolidWorld, jump::{CollisionJumpPlugin, Gravity}, locomotion::LocomotionDescriptionPlugin, snap_to_ground::SnapToGroundPlugin,
         },
-    },
-    components::Velocity2D,
-    prelude::*,
-    sets::InputsSet,
+    }, components::Velocity2D, prelude::*, sets::InputsSet,
 };
 
+pub mod snap_to_ground;
 pub mod bundles;
 pub mod collision_check;
 pub mod collision_handlers;
@@ -68,6 +63,8 @@ impl Plugin for Collision2DPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(CollisionJumpPlugin)
             .add_plugins(LocomotionDescriptionPlugin)
+
+            .add_plugins(SnapToGroundPlugin)
             .init_resource::<SolidWorld>()
             .insert_resource(Collision2DGravityForce(self.gravity))
             .add_systems(
@@ -76,7 +73,6 @@ impl Plugin for Collision2DPlugin {
                     apply_platformer_velocity_from_intent,
                     apply_friction,
                     apply_speed_clamp,
-                    snap_to_ground,
                 )
                     .in_set(Collision2DSet::Move),
             )
@@ -213,49 +209,3 @@ fn update_contacts(
     }
 }
 
-/// The entity will try to snap to the ground as soon as they can
-#[derive(Component)]
-#[require(Hitbox, Transform)]
-pub struct SnapToGround {
-    pub max_attempts: u32,
-}
-impl Default for SnapToGround {
-    fn default() -> Self {
-        Self { max_attempts: 512 }
-    }
-}
-
-fn snap_to_ground(
-    mut q: Query<(Entity, &mut Transform, &Hitbox, &SnapToGround), With<CollisionActor>>,
-    solid: Res<SolidWorld>,
-    mut commands: Commands,
-) {
-    if !solid.is_loaded() {
-        return;
-    }
-    for (entity, mut transform, hitbox, snap) in &mut q {
-        let mut attempts = 0;
-        let max_attempts = snap.max_attempts;
-        while solid.is_colliding(transform.get_2d_pos(), hitbox) {
-            transform.translation.y += 1.;
-            if attempts > max_attempts {
-                warn!(
-                    "Could not snap to ground: Could not ascend above ground in time. Will try again later"
-                );
-            }
-            attempts += 1;
-        }
-        attempts = 0;
-        while !solid.is_colliding(transform.get_2d_pos(), hitbox) {
-            transform.translation.y -= 1.;
-            if attempts > max_attempts {
-                warn!(
-                    "Could not snap to ground: Could not descend onto ground in time. Will try again later"
-                );
-            }
-            attempts += 1;
-        }
-        transform.translation.y += 1.;
-        commands.entity(entity).remove::<SnapToGround>();
-    }
-}

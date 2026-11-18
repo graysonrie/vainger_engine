@@ -290,11 +290,10 @@ fn sync_outer_letterbox(
 
 fn resize_slot(images: &mut Assets<Image>, slot: &mut ScreenSlot, rect: URect, res: u32) {
     let target = target_extent(rect, res);
-    if let Some(mut image) = images.get_mut(&slot.image) {
-        if image.texture_descriptor.size != target {
+    if let Some(mut image) = images.get_mut(&slot.image)
+        && image.texture_descriptor.size != target {
             image.resize(target);
         }
-    }
     slot.rect = rect;
 }
 

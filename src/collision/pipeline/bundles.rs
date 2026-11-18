@@ -44,4 +44,9 @@ impl AsepritePlatformerActorBundle {
         self.character.speed.0 = speed;
         self
     }
+
+    pub fn with_z(mut self, z: f32) -> Self {
+        self.character.transform.translation.z = z;
+        self
+    }
 }

@@ -11,9 +11,9 @@ pub struct PixelPerfectCameraFollow {
 #[allow(unused)]
 impl PixelPerfectCameraFollow {
     /// The larger the decay rate, the faster the camera will
-    /// track the target.
-    ///
-    /// Default is 4.0
+    /// track the target. Default is 4.0
+    /// 
+    /// If you are using splitscreen, use `for_camera` instead.
     pub fn new(decay_rate: f32) -> Self {
         Self {
             decay_rate,

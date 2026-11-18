@@ -5,6 +5,10 @@ pub struct FullAsepriteAnimationSet;
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AnimationResolutionSet {
+    /// The [`AnimationResolver`] is completely refreshed in this set.
+    ///
+    /// You should put animation commit logic (such as watching for animation end events)
+    /// in here, that way they run before `Resolve`
     Reset,
     Resolve,
     Apply,
@@ -34,6 +38,7 @@ pub struct AnimationResolver {
     pub selected_tag: &'static str,
     priority: u8,
     initial_tag: &'static str,
+    speed_override: Option<f32>,
 }
 
 impl AnimationResolver {
@@ -42,6 +47,7 @@ impl AnimationResolver {
             selected_tag: initial_tag,
             priority: 0,
             initial_tag,
+            speed_override: None,
         }
     }
     /// A higher priority wins over lower ones
@@ -49,11 +55,27 @@ impl AnimationResolver {
         if priority > self.priority {
             self.priority = priority;
             self.selected_tag = tag;
+            self.speed_override = None;
         }
     }
+
+    /// A higher priority wins over lower ones
+    ///
+    /// Will override the default speed factor of '1' with whatever you decide.
+    /// If another animation uses `propose` later and wins over this one, the speed
+    /// factor goes back to 1.
+    pub fn propose_with_speed(&mut self, tag: &'static str, priority: u8, speed: f32) {
+        if priority > self.priority {
+            self.priority = priority;
+            self.selected_tag = tag;
+            self.speed_override = Some(speed);
+        }
+    }
+
     fn reset(&mut self) {
         self.selected_tag = self.initial_tag;
         self.priority = 0;
+        self.speed_override = None;
     }
 }
 
@@ -75,6 +97,10 @@ fn apply_resolver(
             continue;
         }
         animation.animation.play_loop(resolver.selected_tag);
+
+        if let Some(speed) = resolver.speed_override {
+            animation.animation.speed = speed;
+        }
 
         // TODO: may not be needed
         ase_info

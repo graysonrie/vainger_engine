@@ -121,4 +121,9 @@ impl AssetLoader for BitmapFontLoader {
             last_code: src.last_code,
         })
     }
+
+    fn extensions(&self) -> &[&str] {
+        &["font.ron"]
+        
+    }
 }
