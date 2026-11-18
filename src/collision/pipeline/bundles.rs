@@ -3,6 +3,8 @@ use crate::aseprite::hitbox::AsepriteHitbox;
 use super::*;
 
 /// A platforming character that can move and is affected by gravity
+///
+/// Does not contain components for jumping
 #[derive(Bundle, Default)]
 pub struct PlatformerActorBundle {
     actor: CollisionActor,
@@ -15,6 +17,9 @@ pub struct PlatformerActorBundle {
     transform: Transform,
 }
 
+/// Superset of [`PlatformerActorBundle`]. It only adds extra components
+/// for the hitbox and Aseprite sprite, so it adds no actual
+/// platformer logic
 #[derive(Bundle)]
 pub struct AsepritePlatformerActorBundle {
     pub character: PlatformerActorBundle,

@@ -1,6 +1,9 @@
 use crate::prelude::*;
 use bevy::camera::visibility::RenderLayers;
 
+// Screen fade overlays are spawned as a child of the PixelPerfectCamera
+// since both of them share some of the same components like RenderLayers
+
 /// Reads [`FadeScreen`] messages as processes fades during `Update`
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ScreenFadeSet;
