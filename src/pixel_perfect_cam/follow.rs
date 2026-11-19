@@ -12,7 +12,7 @@ pub struct PixelPerfectCameraFollow {
 impl PixelPerfectCameraFollow {
     /// The larger the decay rate, the faster the camera will
     /// track the target. Default is 4.0
-    /// 
+    ///
     /// If you are using splitscreen, use `for_camera` instead.
     pub fn new(decay_rate: f32) -> Self {
         Self {
@@ -85,6 +85,10 @@ fn handle_follow(
         transform
             .translation
             .smooth_nudge(&desired_pos, choice.decay_rate, dt);
+
+        // TODO: this is a bit of a hack to avoid shimmers on the bottom of the character
+        // when they jump
+        transform.translation.y = transform.translation.y.round();
     }
 }
 
