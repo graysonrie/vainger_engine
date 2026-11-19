@@ -59,9 +59,12 @@ pub struct JumpBuffer {
 }
 
 impl JumpBuffer {
-    /// Sets `pressed` to the max value
+    /// Records a new jump press and clears any previous release.
+    ///
+    /// A same-frame tap should call [`Self::set_released`] after this.
     pub fn set_pressed(&mut self) {
         self.pressed = self.pressed_max;
+        self.released = 0;
     }
 
     /// Sets `released` to the max value
@@ -75,8 +78,15 @@ impl JumpBuffer {
         self.released > 0
     }
     fn advance(&mut self) {
+        let was_pressed = self.pressed > 0;
         self.pressed = self.pressed.saturating_sub(1);
-        self.released = self.released.saturating_sub(1);
+        if was_pressed && self.pressed == 0 {
+            // Press buffer ended without a jump (a successful jump clears
+            // `pressed` before this runs). Drop the early release with it.
+            self.released = 0;
+        } else if self.pressed == 0 {
+            self.released = self.released.saturating_sub(1);
+        }
     }
     pub fn zero_released(&mut self) {
         self.released = 0;
@@ -154,6 +164,8 @@ fn on_do_jump(
         (
             &Jump,
             Option<&CoyoteTime>,
+            Option<&JumpCut>,
+            &mut JumpBuffer,
             &mut Velocity2D,
             &CollisionContacts,
             &Gravity,
@@ -162,11 +174,21 @@ fn on_do_jump(
     >,
     mut commands: Commands,
 ) {
-    if let Ok((jump, coyote, mut velocity, contacts, gravity)) = q.get_mut(event.0) {
+    if let Ok((jump, coyote, jump_cut, mut jump_buffer, mut velocity, contacts, gravity)) =
+        q.get_mut(event.0)
+    {
         let can_jump = contacts.floor || coyote.map_or_default(|c| c.is_active(gravity.falling));
         if can_jump {
             commands.trigger(JumpSucceeded(event.0));
             velocity.y = jump.height;
+            // The press can be several frames old. If the button was already
+            // released, start at the cut height instead of full height.
+            if jump_buffer.released_active()
+                && let Some(jump_cut) = jump_cut
+            {
+                velocity.y *= jump_cut.amount;
+                jump_buffer.released = 0;
+            }
         }
     }
 }
@@ -213,9 +235,59 @@ fn handle_jump_cut(
     mut q: Query<(&mut Velocity2D, &mut JumpBuffer, &JumpCut), With<CollisionActor>>,
 ) {
     for (mut velocity, mut jump_buffer, jump_cut) in &mut q {
-        if velocity.y.is_sign_positive() && jump_buffer.released_active() {
+        // `0.0` is sign-positive. Landing zeroes vertical speed, and treating
+        // that as "rising" would consume the release before the buffered jump
+        // assigns its upward velocity.
+        if velocity.y > 0.0 && jump_buffer.released_active() {
             velocity.y *= jump_cut.amount;
             jump_buffer.released = 0;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::JumpBuffer;
+
+    #[test]
+    fn early_release_lasts_until_the_press_buffer_ends() {
+        let mut buffer = JumpBuffer::default();
+        buffer.set_pressed();
+        buffer.set_released();
+
+        // Press lasts 8 frames and release used to last 4. A tap on the
+        // way down must still count as released on every frame the buffered
+        // press can still start a jump.
+        for _ in 0..buffer.pressed_max {
+            assert!(buffer.pressed_active());
+            assert!(buffer.released_active());
+            buffer.advance();
+        }
+
+        assert!(!buffer.pressed_active());
+        assert!(!buffer.released_active());
+    }
+
+    #[test]
+    fn release_still_expires_when_nothing_is_buffered() {
+        let mut buffer = JumpBuffer::default();
+        buffer.set_released();
+
+        for _ in 0..buffer.released_max {
+            assert!(buffer.released_active());
+            buffer.advance();
+        }
+
+        assert!(!buffer.released_active());
+    }
+
+    #[test]
+    fn new_press_does_not_inherit_an_old_release() {
+        let mut buffer = JumpBuffer::default();
+        buffer.set_released();
+        buffer.set_pressed();
+
+        assert!(buffer.pressed_active());
+        assert!(!buffer.released_active());
     }
 }
