@@ -1,18 +1,21 @@
-//! NES sprite placement. Movement keeps a fractional position, and the
-//! rendered [`Transform`] is the whole pixel that contains it.
+//! Sprite positions stay fractional for movement. The rendered position is the
+//! snapped camera plus the snapped gap between the two logical positions.
+//!
+//! Rounding the sprite and the camera separately makes `round(player) -
+//! round(camera)` jump by a texel whenever they straddle a boundary, even when
+//! the real gap is steady.
 
 use crate::prelude::*;
 
-/// Fractional position for an entity whose sprite must stay on whole pixels.
+use super::snap::{SubpixelPos, grid_step, snap_axis};
+
+/// Fractional position for a sprite rendered relative to the pixel-perfect camera.
 ///
 /// Physics and collision keep writing [`Transform`] during [`Update`]. Before
-/// the frame renders, that position is floored onto a pixel and the fraction
-/// is stored here. The next frame puts the fraction back before gameplay runs,
-/// so a speed below one pixel per frame still accumulates.
-///
-/// The drawn pixel is `floor` of the position: the sprite stays on pixel `n`
-/// while the position is in `[n, n + 1)`, then steps to the next pixel. That
-/// is the NES accumulator. Rounding would draw the sprite a pixel early.
+/// the frame renders, the drawn position becomes the camera's snapped position
+/// plus the snapped gap from the camera's logical position. The fraction is
+/// stored here and put back before the next frame's gameplay, so a speed below
+/// one texel per frame still accumulates.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct SpriteSubpixel {
     logical: Vec2,
@@ -30,7 +33,7 @@ impl Default for SpriteSubpixel {
 
 /// Puts the fractional position back before gameplay reads [`Transform`].
 ///
-/// A transform that no longer matches the pixel last written was moved while
+/// A transform that no longer matches the texel last written was moved while
 /// it was snapped (a spawn, a teleport) and becomes the new position.
 pub(super) fn restore_sprite_subpixel(mut sprites: Query<(&mut Transform, &mut SpriteSubpixel)>) {
     for (mut transform, mut sample) in &mut sprites {
@@ -44,17 +47,86 @@ pub(super) fn restore_sprite_subpixel(mut sprites: Query<(&mut Transform, &mut S
     }
 }
 
-/// Floors the position onto a pixel after gameplay, including camera follow.
+/// Places each sprite on the camera texel grid after the camera has snapped.
+///
+/// The step is one canvas texel, `1 / (res * zoom)`. The drawn position is
+/// `snap(camera) + snap(sprite - camera)`, using both logical positions, so a
+/// steady follow lag stays on one screen texel.
 pub(super) fn snap_sprites_to_pixel_grid(
-    mut sprites: Query<(&mut Transform, &mut SpriteSubpixel)>,
+    config: Res<PixelPerfectCameraConfig>,
+    cameras: Query<(Entity, &SubpixelPos, &CameraZoom), With<PixelPerfectCamera>>,
+    mut sprites: Query<(
+        &mut Transform,
+        &mut SpriteSubpixel,
+        Option<&PixelPerfectCameraFollow>,
+    )>,
 ) {
-    for (mut transform, mut sample) in &mut sprites {
+    let cameras: Vec<(Entity, CameraSample)> = cameras
+        .iter()
+        .map(|(entity, sample, zoom)| {
+            (
+                entity,
+                CameraSample {
+                    logical: sample.logical(),
+                    on_grid: sample.on_grid(),
+                    zoom: zoom.0,
+                },
+            )
+        })
+        .collect();
+    let res = config.render_scale();
+    for (mut transform, mut sample, follow) in &mut sprites {
         let logical = transform.translation.truncate();
-        let on_grid = Vec2::new(logical.x.floor(), logical.y.floor());
+        let camera = camera_for(follow, &cameras);
+        let step = grid_step(res, camera.map(|camera| camera.zoom).unwrap_or(1.0));
+        let on_grid = drawn_on_grid(logical, camera, step);
         sample.logical = logical;
         sample.on_grid = Some(on_grid);
         write_xy(&mut transform, on_grid);
     }
+}
+
+struct CameraSample {
+    logical: Vec2,
+    on_grid: Option<Vec2>,
+    zoom: f32,
+}
+
+fn camera_for<'a>(
+    follow: Option<&PixelPerfectCameraFollow>,
+    cameras: &'a [(Entity, CameraSample)],
+) -> Option<&'a CameraSample> {
+    if let Some(id) = follow.and_then(|follow| follow.camera) {
+        if let Some((_, sample)) = cameras.iter().find(|(entity, _)| *entity == id) {
+            return Some(sample);
+        }
+        warn_once!("sprite subpixel follow target is not a pixel-perfect camera");
+    }
+    match cameras {
+        [(_, sample)] => Some(sample),
+        [] => None,
+        _ => {
+            warn_once!(
+                "more than one pixel-perfect camera; sprites without a follow camera are snapped on their own"
+            );
+            None
+        }
+    }
+}
+
+/// `snap(camera) + snap(sprite - camera)`. Without a snapped camera, snap the sprite alone.
+fn drawn_on_grid(logical: Vec2, camera: Option<&CameraSample>, step: f32) -> Vec2 {
+    let Some(camera) = camera else {
+        return snap_vec(logical, step);
+    };
+    let Some(camera_drawn) = camera.on_grid else {
+        return snap_vec(logical, step);
+    };
+    camera_drawn + snap_vec(logical - camera.logical, step)
+}
+
+fn snap_vec(value: Vec2, step: f32) -> Vec2 {
+    Vec2::new(snap_axis(value.x, step), snap_axis(value.y, step))
 }
 
 fn write_xy(transform: &mut Transform, pos: Vec2) {
@@ -70,10 +142,12 @@ fn write_xy(transform: &mut Transform, pos: Vec2) {
 mod tests {
     use super::*;
 
+    use crate::pixel_perfect_cam::snap::SubpixelPos;
+
     #[test]
-    fn subpixel_steps_do_not_move_the_drawn_sprite_until_a_whole_pixel() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins).add_systems(
+    fn subpixel_steps_stay_on_the_camera_texel_until_the_next_one() {
+        let mut app = test_app();
+        app.add_systems(
             Update,
             (
                 restore_sprite_subpixel,
@@ -92,13 +166,13 @@ mod tests {
             .id();
 
         app.update();
-        assert_drawn(app.world(), sprite, 0.0, 0.25);
+        assert_drawn(app.world(), sprite, 0.5, 0.25);
 
         app.update();
-        assert_drawn(app.world(), sprite, 0.0, 0.5);
+        assert_drawn(app.world(), sprite, 0.5, 0.5);
 
         app.update();
-        assert_drawn(app.world(), sprite, 0.0, 0.75);
+        assert_drawn(app.world(), sprite, 1.0, 0.75);
 
         app.update();
         assert_drawn(app.world(), sprite, 1.0, 1.0);
@@ -108,9 +182,8 @@ mod tests {
 
     #[test]
     fn a_position_written_over_the_snapped_sprite_becomes_the_new_position() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins)
-            .add_systems(PreUpdate, restore_sprite_subpixel)
+        let mut app = test_app();
+        app.add_systems(PreUpdate, restore_sprite_subpixel)
             .add_systems(PostUpdate, snap_sprites_to_pixel_grid);
 
         let sprite = app
@@ -122,7 +195,7 @@ mod tests {
             .id();
 
         app.update();
-        assert_drawn(app.world(), sprite, 3.0, 3.25);
+        assert_drawn(app.world(), sprite, 3.5, 3.25);
 
         app.world_mut()
             .get_mut::<Transform>(sprite)
@@ -131,13 +204,13 @@ mod tests {
             .x = 8.75;
 
         app.update();
-        assert_drawn(app.world(), sprite, 8.0, 8.75);
+        assert_drawn(app.world(), sprite, 9.0, 8.75);
     }
 
     #[test]
-    fn moving_left_steps_the_drawn_sprite_when_the_pixel_is_crossed() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins).add_systems(
+    fn moving_left_keeps_the_drawn_sprite_until_the_texel_is_crossed() {
+        let mut app = test_app();
+        app.add_systems(
             Update,
             (
                 restore_sprite_subpixel,
@@ -156,7 +229,110 @@ mod tests {
             .id();
 
         app.update();
-        assert_drawn(app.world(), sprite, 4.0, 4.75);
+        assert_drawn(app.world(), sprite, 5.0, 4.75);
+    }
+
+    #[test]
+    fn a_caught_up_camera_and_sprite_land_on_the_same_texel() {
+        let mut app = test_app();
+        app.add_systems(
+            PostUpdate,
+            (
+                crate::pixel_perfect_cam::snap::snap_camera_to_render_grid,
+                snap_sprites_to_pixel_grid,
+            )
+                .chain(),
+        );
+
+        let camera = app
+            .world_mut()
+            .spawn((
+                PixelPerfectCamera,
+                CameraZoom(1.0),
+                Transform::from_xyz(0.0, 0.0, 0.0),
+                SubpixelPos::default(),
+            ))
+            .id();
+        let sprite = app
+            .world_mut()
+            .spawn((Transform::from_xyz(0.0, 0.0, 0.0), SpriteSubpixel::default()))
+            .id();
+
+        for x in [0.0, 0.2, 0.25, 0.5, 0.74, 0.75, 0.9, 10.25] {
+            app.world_mut().get_mut::<Transform>(camera).unwrap().translation.x = x;
+            app.world_mut().get_mut::<Transform>(sprite).unwrap().translation.x = x;
+            app.update();
+            let camera_x = app.world().get::<Transform>(camera).unwrap().translation.x;
+            let sprite_x = app.world().get::<Transform>(sprite).unwrap().translation.x;
+            assert_eq!(sprite_x, camera_x, "fractional position {x}");
+        }
+    }
+
+    #[test]
+    fn a_constant_gap_stays_on_one_screen_pixel() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(PixelPerfectCameraConfig {
+                game_width: 64.0,
+                game_height: 64.0,
+                res: 1,
+            })
+            .add_systems(
+                PostUpdate,
+                (
+                    crate::pixel_perfect_cam::snap::snap_camera_to_render_grid,
+                    snap_sprites_to_pixel_grid,
+                )
+                    .chain(),
+            );
+
+        let camera = app
+            .world_mut()
+            .spawn((
+                PixelPerfectCamera,
+                CameraZoom(1.0),
+                Transform::from_xyz(0.0, 0.0, 0.0),
+                SubpixelPos::default(),
+            ))
+            .id();
+        let sprite = app
+            .world_mut()
+            .spawn((Transform::from_xyz(0.0, 0.0, 0.0), SpriteSubpixel::default()))
+            .id();
+
+        for gap in [0.25, -0.25, 0.75, -0.75] {
+            let expected = snap_axis(gap, 1.0);
+            for camera_x in [10.0, 10.25, 10.5, 10.75, 11.0] {
+                app.world_mut()
+                    .get_mut::<Transform>(camera)
+                    .unwrap()
+                    .translation
+                    .x = camera_x;
+                app.world_mut()
+                    .get_mut::<Transform>(sprite)
+                    .unwrap()
+                    .translation
+                    .x = camera_x + gap;
+                app.update();
+                let drawn_camera = app.world().get::<Transform>(camera).unwrap().translation.x;
+                let drawn_sprite = app.world().get::<Transform>(sprite).unwrap().translation.x;
+                assert_eq!(
+                    drawn_sprite - drawn_camera,
+                    expected,
+                    "gap {gap} at camera {camera_x}"
+                );
+            }
+        }
+    }
+
+    fn test_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).insert_resource(PixelPerfectCameraConfig {
+            game_width: 64.0,
+            game_height: 64.0,
+            res: 2,
+        });
+        app
     }
 
     fn nudge_by_quarter(mut sprites: Query<&mut Transform, With<SpriteSubpixel>>) {

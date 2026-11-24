@@ -27,6 +27,14 @@ impl SubpixelPos {
         self.logical = pos;
         self.on_grid = Some(pos);
     }
+
+    pub(super) fn logical(&self) -> Vec2 {
+        self.logical
+    }
+
+    pub(super) fn on_grid(&self) -> Option<Vec2> {
+        self.on_grid
+    }
 }
 
 /// Puts the fractional center back before follow and bounds run.
@@ -72,11 +80,11 @@ pub(super) fn snap_camera_to_render_grid(
     }
 }
 
-fn grid_step(res: u32, zoom: f32) -> f32 {
+pub(super) fn grid_step(res: u32, zoom: f32) -> f32 {
     1.0 / (res.max(1) as f32 * effective_zoom(zoom))
 }
 
-fn snap_axis(value: f32, step: f32) -> f32 {
+pub(super) fn snap_axis(value: f32, step: f32) -> f32 {
     (value / step).round() * step
 }
 

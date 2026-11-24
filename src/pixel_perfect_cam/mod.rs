@@ -25,8 +25,8 @@ pub use panner::CameraPanner2dBundle;
 /// Camera follow, bounds, and render-grid snap. Runs in [`PostUpdate`] before the
 /// transform propagate, so the frame renders the snapped position.
 ///
-/// [`SpriteSubpixel`] entities are floored onto whole pixels in [`Self::Snap`],
-/// after follow has read their fractional position.
+/// [`SpriteSubpixel`] entities are drawn from the snapped camera plus the snapped
+/// gap between the two logical positions, after the camera itself snaps.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PixelPerfectCameraControlsSet {
     Follow,
@@ -165,6 +165,7 @@ impl Plugin for PixelPerfectCameraPlugin {
                 snap::snap_camera_to_render_grid,
                 sprite_snap::snap_sprites_to_pixel_grid,
             )
+                .chain()
                 .in_set(PixelPerfectCameraControlsSet::Snap),
         );
         app.add_systems(Startup, (setup, configure_window_constraints));
