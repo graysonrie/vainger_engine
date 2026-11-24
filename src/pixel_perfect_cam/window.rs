@@ -2,7 +2,7 @@ use std::num::NonZero;
 
 use bevy::{
     prelude::*,
-    window::{PresentMode, WindowResolution},
+    window::{PresentMode, WindowMode, WindowResolution},
 };
 
 // Common integer game resolutions for pixel-perfect window setup:
@@ -29,6 +29,7 @@ pub trait WindowPluginExt {
     fn with_present_mode(self, mode: PresentMode) -> Self;
     fn with_desired_maximum_frame_latency(self, frames: u32) -> Self;
     fn with_focused(self, focused: bool) -> Self;
+    fn with_window_mode(self, mode: WindowMode) -> Self;
 }
 
 impl WindowPluginExt for WindowPlugin {
@@ -83,6 +84,14 @@ impl WindowPluginExt for WindowPlugin {
             .as_mut()
             .expect("Primary window should exist")
             .focused = focused;
+        self
+    }
+
+    fn with_window_mode(mut self, mode: WindowMode) -> Self {
+        self.primary_window
+            .as_mut()
+            .expect("Primary window should exist")
+            .mode = mode;
         self
     }
 }
