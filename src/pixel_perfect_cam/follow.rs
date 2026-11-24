@@ -1,22 +1,36 @@
 use crate::prelude::*;
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum FollowType {
+    Smooth { decay_rate: f32 },
+    Instant,
+}
+
 /// Marker component that tells the pixel perfect camera to follow this entity
 #[derive(Component)]
 pub struct PixelPerfectCameraFollow {
     /// A value like `4.` is a good amount
-    pub decay_rate: f32,
+    pub follow_type: FollowType,
     /// Screen that should chase this entity. [`None`] means the only camera.
     pub camera: Option<Entity>,
 }
 #[allow(unused)]
 impl PixelPerfectCameraFollow {
+
+    pub fn new_instant()-> Self {
+        Self {
+            follow_type: FollowType::Instant,
+            camera: None
+        }
+    }
+
     /// The larger the decay rate, the faster the camera will
     /// track the target. Default is 4.0
     ///
     /// If you are using splitscreen, use `for_camera` instead.
-    pub fn new(decay_rate: f32) -> Self {
+    pub fn new_smooth(decay_rate: f32) -> Self {
         Self {
-            decay_rate,
+            follow_type: FollowType::Smooth { decay_rate },
             camera: None,
         }
     }
@@ -24,16 +38,16 @@ impl PixelPerfectCameraFollow {
     /// Follow `camera`.
     ///
     /// The larger the decay rate, the faster the camera will track the target.
-    pub fn for_camera(camera: Entity, decay_rate: f32) -> Self {
+    pub fn for_camera(camera: Entity, follow_type: FollowType) -> Self {
         Self {
-            decay_rate,
+            follow_type,
             camera: Some(camera),
         }
     }
 }
 impl Default for PixelPerfectCameraFollow {
     fn default() -> Self {
-        Self::new(4.)
+        Self::new_smooth(4.)
     }
 }
 
@@ -72,7 +86,7 @@ fn handle_follow(
         chosen.push(ChosenFollow {
             camera,
             target: transform.translation,
-            decay_rate: follow.decay_rate,
+            follow_type: follow.follow_type.clone(),
         });
     }
 
@@ -82,16 +96,24 @@ fn handle_follow(
             continue;
         };
         let desired_pos = Vec3::new(choice.target.x, choice.target.y, transform.translation.z);
-        transform
-            .translation
-            .smooth_nudge(&desired_pos, choice.decay_rate, dt);
+
+        match choice.follow_type {
+            FollowType::Smooth { decay_rate } => {
+                transform
+                    .translation
+                    .smooth_nudge(&desired_pos, decay_rate, dt);
+            }
+            FollowType::Instant => {
+                transform.translation = desired_pos;
+            }
+        }
     }
 }
 
 struct ChosenFollow {
     camera: Entity,
     target: Vec3,
-    decay_rate: f32,
+    follow_type: FollowType,
 }
 
 fn resolve_follow(target: Option<Entity>, cameras: &[Entity]) -> Option<Entity> {

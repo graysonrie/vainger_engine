@@ -36,7 +36,7 @@ impl AsepriteHitbox {
         let Ok((entity, this)) = q.get(event.entity) else {
             return;
         };
-        let Some(frame) = ase.hitbox_from_tag(&this.aseprite, this.tag_name) else {
+        let Some(frame) = ase.hitbox_from_tag(&this.aseprite, this.tag_name, true) else {
             warn!(
                 "Encountered aseprite hitbox with no opaque pixels! Tag name: {}",
                 this.tag_name

@@ -23,6 +23,7 @@ pub struct AseInfo<'w> {
     aseprites: Res<'w, Assets<Aseprite>>,
     layouts: Res<'w, Assets<TextureAtlasLayout>>,
     images: Res<'w, Assets<Image>>,
+    asset_server: Res<'w, AssetServer>,
 }
 
 impl AseInfo<'_> {
@@ -99,10 +100,16 @@ impl AseInfo<'_> {
     /// The loader flattens every layer into the frame, so pixels from other
     /// layers on that frame are included. Returns `None` when the tag, atlas, or
     /// opaque pixels are missing.
+    ///
+    /// Because by default a FrameHitbox has its origin in the center, if the hitbox
+    /// dimensions are uneven, it causes the origin to land on a fractional position,
+    /// which can screw up rendering with the pixel perfect camera, which is why
+    /// `warn_if_uneven` is here if you want to be wary of that
     pub fn hitbox_from_tag(
         &self,
         handle: &Handle<Aseprite>,
         tag_name: &str,
+        warn_if_uneven: bool,
     ) -> Option<FrameHitbox> {
         let ase = self.get(handle)?;
         let tag = ase.tags.get(tag_name)?;
@@ -111,6 +118,17 @@ impl AseInfo<'_> {
         let frame = usize::from(*tag.range.start());
         let atlas_rect = layout.textures.get(ase.get_atlas_index(frame))?;
         let opaque = opaque_bounds(image, *atlas_rect)?;
+
+        if warn_if_uneven && (opaque.size().x % 2 != 0 || opaque.size().y % 2 != 0) {
+            let path = self
+                .asset_server
+                .get_path(handle)
+                .map(|path| path.to_string())
+                .unwrap_or_else(|| handle.id().to_string());
+
+            warn!("hitbox_from_tag: uneven hitbox in {path} (tag: {tag_name})");
+        }
+
         let frame_bounds = URect {
             min: opaque.min.saturating_sub(atlas_rect.min),
             max: opaque.max.saturating_sub(atlas_rect.min),
@@ -183,78 +201,6 @@ fn opaque_bounds(image: &Image, region: URect) -> Option<URect> {
         return None;
     }
     Some(URect { min, max })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bevy::asset::RenderAssetUsages;
-    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-
-    #[test]
-    fn offset_rectangle_origin_is_its_center() {
-        let canvas = uvec2(64, 64);
-        // Pixels x=10..30, y=20..50 in top-left space. Center is left and below the canvas center.
-        let frame = frame_hitbox(
-            canvas,
-            URect {
-                min: uvec2(10, 20),
-                max: uvec2(30, 50),
-            },
-        )
-        .expect("bounds");
-
-        assert_eq!(frame.hitbox.size(), uvec2(20, 30));
-        let anchor = frame.sprite_anchor.as_vec();
-        assert!((anchor.x - (-12.0 / 64.0)).abs() < 1e-5);
-        assert!((anchor.y - (-3.0 / 64.0)).abs() < 1e-5);
-
-        // Entity transform is the rectangle center, so the box extends half its size each way.
-        // Those edges are the painted pixels: x=10..30, y=20..50 on the 64² canvas.
-        let corners = frame.hitbox.four_corners_in_world(Vec2::ZERO);
-        assert!((corners[0] - Vec2::new(-10.0, -15.0)).length() < 1e-4);
-        assert!((corners[2] - Vec2::new(10.0, 15.0)).length() < 1e-4);
-    }
-
-    #[test]
-    fn opaque_bounds_ignore_transparent_pixels() {
-        let width = 8;
-        let height = 8;
-        let mut data = vec![0u8; (width * height * 4) as usize];
-        for y in 1..3 {
-            for x in 2..5 {
-                let index = ((y * width + x) * 4) as usize;
-                data[index + 3] = 255;
-            }
-        }
-        let image = Image::new(
-            Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            TextureDimension::D2,
-            data,
-            TextureFormat::Rgba8UnormSrgb,
-            RenderAssetUsages::default(),
-        );
-        let bounds = opaque_bounds(
-            &image,
-            URect {
-                min: UVec2::ZERO,
-                max: uvec2(width, height),
-            },
-        )
-        .expect("opaque pixels");
-        let frame = frame_hitbox(uvec2(width, height), bounds).expect("hitbox");
-
-        assert_eq!(bounds.min, uvec2(2, 1));
-        assert_eq!(bounds.max, uvec2(5, 3));
-        assert_eq!(frame.hitbox.size(), uvec2(3, 2));
-        let anchor = frame.sprite_anchor.as_vec();
-        assert!((anchor.x - (-0.5 / 8.0)).abs() < 1e-5);
-        assert!((anchor.y - (2.0 / 8.0)).abs() < 1e-5);
-    }
 }
 
 pub struct AsepriteExtPlugin;

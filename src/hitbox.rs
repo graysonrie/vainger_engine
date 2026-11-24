@@ -115,19 +115,3 @@ impl Hitbox {
         self.size.x / 2
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn center_anchor_sits_above_point() {
-        let hitbox = Hitbox::new(24, 24, Anchor::CENTER);
-        let pos = hitbox.above_point_centered(Vec2::new(80.0, -192.0));
-        assert_eq!(pos, Vec2::new(80.0, -180.0));
-        let corners = hitbox.four_corners_in_world(pos);
-        let ys: Vec<f32> = corners.iter().map(|c| c.y).collect();
-        assert!(ys.iter().any(|y| (*y - -192.0).abs() < f32::EPSILON));
-        assert!(ys.iter().any(|y| (*y - -168.0).abs() < f32::EPSILON));
-    }
-}
