@@ -4,7 +4,6 @@ pub mod follow;
 mod layout;
 mod panner;
 mod snap;
-mod sprite_snap;
 pub mod pointer;
 pub mod screen_transition;
 #[cfg(target_arch = "wasm32")]
@@ -17,16 +16,12 @@ use thiserror::Error;
 pub mod window;
 pub use bounds::CameraBoundsInfo;
 pub use follow::PixelPerfectCameraFollow;
-pub use sprite_snap::SpriteSubpixel;
 pub use layout::{ScreenIndex, ScreenSlot};
 #[allow(unused)]
 pub use panner::CameraPanner2dBundle;
 
-/// Camera follow, bounds, and render-grid snap. Runs in [`PostUpdate`] before the
-/// transform propagate, so the frame renders the snapped position.
-///
-/// [`SpriteSubpixel`] entities are drawn from the snapped camera plus the snapped
-/// gap between the two logical positions, after the camera itself snaps.
+/// Camera follow and bounds. Runs in [`PostUpdate`] before the transform
+/// propagate, so the frame renders the follow position.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PixelPerfectCameraControlsSet {
     Follow,
@@ -54,7 +49,7 @@ use snap::SubpixelPos;
 /// its own render target. [`CameraZoom`] is required and defaults to `1.0`.
 /// The target has [`PixelPerfectCameraConfig::res`] texels per game pixel.
 #[derive(Component, Default)]
-#[require(Transform, CameraZoom, SubpixelPos)]
+#[require(Transform, CameraZoom, SubpixelPos, Visibility)]
 pub struct PixelPerfectCamera;
 
 /// How much world this camera sees, relative to its cell.
@@ -158,15 +153,9 @@ impl Plugin for PixelPerfectCameraPlugin {
                 .before(TransformSystems::Propagate),
         );
         layout::build(app);
-        app.add_systems(PreUpdate, sprite_snap::restore_sprite_subpixel);
         app.add_systems(
             PostUpdate,
-            (
-                snap::snap_camera_to_render_grid,
-                sprite_snap::snap_sprites_to_pixel_grid,
-            )
-                .chain()
-                .in_set(PixelPerfectCameraControlsSet::Snap),
+            snap::present_camera_at_follow_position.in_set(PixelPerfectCameraControlsSet::Snap),
         );
         app.add_systems(Startup, (setup, configure_window_constraints));
         #[cfg(target_arch = "wasm32")]
@@ -416,7 +405,6 @@ impl PixelPerfectCameraQuery<'_, '_> {
     ///
     /// [`CameraBounds`] are applied later in [`PostUpdate`], so a position
     /// outside the bounds will be pulled back before the frame renders.
-    /// The position that is drawn is then snapped onto the render grid.
     pub fn set_xy_of(&mut self, camera: Entity, pos: Vec2) -> Result<(), CameraLookupError> {
         {
             let mut camera = self.camera_mut(camera)?;

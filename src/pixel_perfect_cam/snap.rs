@@ -1,11 +1,11 @@
-//! Keeps the camera's fractional follow position, and copies a grid-snapped
-//! position into [`Transform`] for rendering.
+//! Remembers the camera's follow position. That position is what renders.
+//!
+//! Rounding the camera onto a texel grid, and rounding sprites separately,
+//! slides a stopped character a pixel into the level while the camera eases.
 
 use crate::prelude::*;
 
-use super::layout::effective_zoom;
-
-/// Unsnapped camera center, and the grid position last written to [`Transform`].
+/// Follow position, and the position last presented for rendering.
 #[derive(Component, Clone, Copy)]
 pub(crate) struct SubpixelPos {
     logical: Vec2,
@@ -26,14 +26,6 @@ impl SubpixelPos {
     pub(crate) fn set_exact(&mut self, pos: Vec2) {
         self.logical = pos;
         self.on_grid = Some(pos);
-    }
-
-    pub(super) fn logical(&self) -> Vec2 {
-        self.logical
-    }
-
-    pub(super) fn on_grid(&self) -> Option<Vec2> {
-        self.on_grid
     }
 }
 
@@ -58,46 +50,24 @@ pub(super) fn restore_subpixel_pos(
     }
 }
 
-/// Snaps the camera onto the render grid after follow and bounds.
+/// Records the follow position as the position that will be drawn.
 ///
-/// One grid step is one target texel: `1 / (res * zoom)` world units.
-pub(super) fn snap_camera_to_render_grid(
-    config: Res<PixelPerfectCameraConfig>,
-    mut cameras: Query<
-        (&mut Transform, &mut SubpixelPos, &CameraZoom),
-        With<super::PixelPerfectCamera>,
-    >,
+/// The low-resolution target and nearest filtering define the pixel size.
+/// The camera transform is left where follow and bounds put it, so the level
+/// and the characters share one view.
+pub(super) fn present_camera_at_follow_position(
+    mut cameras: Query<(&Transform, &mut SubpixelPos), With<super::PixelPerfectCamera>>,
 ) {
-    let res = config.render_scale();
-    for (mut transform, mut sample, zoom) in &mut cameras {
+    for (transform, mut sample) in &mut cameras {
         let logical = transform.translation.truncate();
-        let step = grid_step(res, zoom.0);
-        let on_grid = Vec2::new(snap_axis(logical.x, step), snap_axis(logical.y, step));
         sample.logical = logical;
-        sample.on_grid = Some(on_grid);
-        transform.translation.x = on_grid.x;
-        transform.translation.y = on_grid.y;
+        sample.on_grid = Some(logical);
     }
-}
-
-pub(super) fn grid_step(res: u32, zoom: f32) -> f32 {
-    1.0 / (res.max(1) as f32 * effective_zoom(zoom))
-}
-
-pub(super) fn snap_axis(value: f32, step: f32) -> f32 {
-    (value / step).round() * step
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn snap_axis_rounds_to_the_step() {
-        assert_eq!(snap_axis(10.25, 0.5), 10.5);
-        assert_eq!(snap_axis(10.0, 0.5), 10.0);
-        assert_eq!(snap_axis(-1.25, 0.5), -1.5);
-    }
 
     #[test]
     fn tenth_steps_are_not_eaten_by_the_grid() {
@@ -113,7 +83,7 @@ mod tests {
                 (
                     restore_subpixel_pos,
                     nudge_an_eighth,
-                    snap_camera_to_render_grid,
+                    present_camera_at_follow_position,
                 )
                     .chain(),
             );
@@ -139,7 +109,41 @@ mod tests {
             sample.logical.x
         );
         let shown = app.world().get::<Transform>(camera).unwrap().translation.x;
-        assert!((shown - snap_axis(sample.logical.x, 0.5)).abs() < 1e-4);
+        assert!(
+            (shown - sample.logical.x).abs() < 1e-4,
+            "rendered {shown}, logical {}",
+            sample.logical.x
+        );
+    }
+
+    #[test]
+    fn a_fractional_follow_position_is_rendered() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(PixelPerfectCameraConfig {
+                game_width: 64.0,
+                game_height: 64.0,
+                res: 1,
+            })
+            .add_systems(
+                PostUpdate,
+                (restore_subpixel_pos, nudge_an_eighth, present_camera_at_follow_position).chain(),
+            );
+
+        let camera = app
+            .world_mut()
+            .spawn((
+                super::super::PixelPerfectCamera,
+                CameraZoom(1.0),
+                Transform::from_xyz(10.0, 0.0, 0.0),
+                SubpixelPos::default(),
+            ))
+            .id();
+
+        app.update();
+
+        let shown = app.world().get::<Transform>(camera).unwrap().translation.x;
+        assert!((shown - 10.125).abs() < 1e-4, "rendered {shown}");
     }
 
     fn nudge_an_eighth(mut cameras: Query<&mut Transform, With<super::super::PixelPerfectCamera>>) {

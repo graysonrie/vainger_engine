@@ -10,7 +10,7 @@ pub struct PixelPerfectCameraConfig {
     ///
     /// `1` draws one texel per world pixel. `2` matches the GameMaker camera's
     /// `res`: the view is rasterized at twice the game resolution, then scaled
-    /// up by a whole number. The camera snaps to `1/res` so those texels stay aligned.
+    /// up by a whole number. The camera itself is not rounded onto that grid.
     ///
     /// ### NOTE:
     /// The window scale should be a multiple of this. Values below `1` are treated as `1`.
