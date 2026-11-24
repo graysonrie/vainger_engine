@@ -4,6 +4,7 @@ pub mod follow;
 mod layout;
 mod panner;
 mod snap;
+mod sprite_snap;
 pub mod pointer;
 pub mod screen_transition;
 #[cfg(target_arch = "wasm32")]
@@ -16,12 +17,16 @@ use thiserror::Error;
 pub mod window;
 pub use bounds::CameraBoundsInfo;
 pub use follow::PixelPerfectCameraFollow;
+pub use sprite_snap::SpriteSubpixel;
 pub use layout::{ScreenIndex, ScreenSlot};
 #[allow(unused)]
 pub use panner::CameraPanner2dBundle;
 
 /// Camera follow, bounds, and render-grid snap. Runs in [`PostUpdate`] before the
 /// transform propagate, so the frame renders the snapped position.
+///
+/// [`SpriteSubpixel`] entities are floored onto whole pixels in [`Self::Snap`],
+/// after follow has read their fractional position.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PixelPerfectCameraControlsSet {
     Follow,
@@ -153,9 +158,14 @@ impl Plugin for PixelPerfectCameraPlugin {
                 .before(TransformSystems::Propagate),
         );
         layout::build(app);
+        app.add_systems(PreUpdate, sprite_snap::restore_sprite_subpixel);
         app.add_systems(
             PostUpdate,
-            snap::snap_camera_to_render_grid.in_set(PixelPerfectCameraControlsSet::Snap),
+            (
+                snap::snap_camera_to_render_grid,
+                sprite_snap::snap_sprites_to_pixel_grid,
+            )
+                .in_set(PixelPerfectCameraControlsSet::Snap),
         );
         app.add_systems(Startup, (setup, configure_window_constraints));
         #[cfg(target_arch = "wasm32")]

@@ -15,6 +15,8 @@ pub struct PlatformerActorBundle {
     gravity: Gravity,
     move_intent: MoveIntent,
     transform: Transform,
+    /// Drawn on whole pixels. Movement still accumulates the fractional position.
+    subpixel: SpriteSubpixel,
 }
 
 /// Superset of [`PlatformerActorBundle`]. It only adds extra components

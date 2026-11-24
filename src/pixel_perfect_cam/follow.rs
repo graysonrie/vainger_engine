@@ -85,10 +85,6 @@ fn handle_follow(
         transform
             .translation
             .smooth_nudge(&desired_pos, choice.decay_rate, dt);
-
-        // TODO: this is a bit of a hack to avoid shimmers on the bottom of the character
-        // when they jump
-        transform.translation.y = transform.translation.y.round();
     }
 }
 
