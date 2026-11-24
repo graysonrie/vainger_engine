@@ -1,4 +1,9 @@
 use crate::prelude::*;
+pub mod debug;
+pub mod ldtk;
+
+pub use debug::*;
+pub use ldtk::*;
 
 /// Represents a theoretical hitbox
 #[derive(Clone, Debug, Component, Default)]

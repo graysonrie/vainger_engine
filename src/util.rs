@@ -54,11 +54,29 @@ impl TransformExt for GlobalTransform {
 pub trait Vec3Ext {
     /// Adds the 2D position to this, preserving the z value
     fn add_2d_pos(&mut self, pos: &Vec2);
+    fn add_to_x(self, val: f32) -> Vec3;
+    fn add_to_y(self, val: f32) -> Vec3;
+    fn add_to_z(self, val: f32) -> Vec3;
 }
 impl Vec3Ext for Vec3 {
     fn add_2d_pos(&mut self, pos: &Vec2) {
         self.x += pos.x;
         self.y += pos.y;
+    }
+
+    fn add_to_x(mut self, val: f32) -> Vec3 {
+        self.x += val;
+        self
+    }
+
+    fn add_to_y(mut self, val: f32) -> Vec3 {
+        self.y += val;
+        self
+    }
+
+    fn add_to_z(mut self, val: f32) -> Vec3 {
+        self.z += val;
+        self
     }
 }
 

@@ -51,7 +51,7 @@ impl AppExt for App {
             .at_position(IVec2::new(2, 2))
             .with_resolution_of(settings.game_res, settings.window_scale)
             .with_present_mode(bevy::window::PresentMode::Immediate)
-            .with_window_mode(settings.window_mode )
+            .with_window_mode(settings.window_mode)
             .with_focused(!cfg!(debug_assertions));
 
         self.add_plugins(
@@ -62,6 +62,7 @@ impl AppExt for App {
                 // spurious "Failed to find device" warnings when no gamepad is connected.
                 .disable::<GilrsPlugin>(),
         )
+        .add_plugins(DebugHitboxPlugin)
         .add_plugins(LdtkPlugin)
         .add_plugins(AsepriteAnimationPlugin)
         .add_plugins(AsepriteExtPlugin)
